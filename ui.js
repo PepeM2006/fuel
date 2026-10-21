@@ -205,7 +205,7 @@ function viewFoods() {
   if (UI.foodsTab === 'rec') {
     h += `<div class="chips" style="margin:10px 0">${[['', 'Wszystkie'], ['breakfast', 'Śniadania'], ['lunch', 'Na uczelnię'], ['dinner', 'Obiadokolacje'], ['snack', 'Przekąski']].map(([k, l]) => `<button class="sm ${UI.slotFilter === k ? 'sel' : ''}" data-act="sfilter" data-k="${k}">${l}</button>`).join('')}</div><div class="cards">`;
     const f = r => (!UI.slotFilter || r.slots.includes(UI.slotFilter)) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
-    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="1"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="mut sm">${money(recipeCost(r))}</div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
+    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="${fitServ(r)}"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="row" style="gap:2px"><span class="mut sm">${money(recipeCost(r))}</span><button class="ghost sm danger" data-act="delRec" data-id="${r.id}" aria-label="Usuń przepis">✕</button></div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
     h += `</div>`;
   } else {
     h += `<div class="card" style="margin-top:10px">`;
@@ -353,10 +353,12 @@ function viewRec(id, serv = 1, ctx) {
     [r.combo ? { label: 'Zapisz jako mój przepis', fn: () => saveCombo(r) } : { label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : [])]);
 }
 
-function editIng(id) {
-  const i = id ? ing(id) : { name: '', nl: '', unit: 'g', kcal: '', p: '', c: '', f: '', aisle: 'Inne', pack: '', price: '', pantry: 0, proc: 0 };
+function editIng(id, opts = {}) {
+  const i = id ? ing(id) : { name: opts.name || '', nl: '', unit: 'g', kcal: '', p: '', c: '', f: '', aisle: 'Inne', pack: '', price: '', pantry: 0, proc: 0 };
+  const aiOn = UI.cfg && (UI.cfg.mode === 'cli' || UI.cfg.mode === 'api');
   modal(id ? 'Edytuj składnik' : 'Nowy składnik', `
     <label>Nazwa</label><input id="e_name" value="${esc(i.name)}">
+    ${aiOn ? '<button class="sm" style="margin-top:8px" data-aifill>Uzupełnij wartości (Claude)</button><span class="xs mut" id="e_ai"></span>' : '<div class="xs mut" style="margin-top:6px">Wartości odżywcze wpisz z opakowania.</div>'}
     <label>Nazwa w sklepie (NL) – pomaga przy zakupach</label><input id="e_nl" value="${esc(i.nl || '')}" placeholder="np. Kipfilet">
     <div class="grid2"><div><label>Jednostka</label><select id="e_unit">${['g', 'ml', 'pcs'].map(u => `<option ${i.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
     <div><label>Dział</label><select id="e_aisle">${AISLES.map(a => `<option ${i.aisle === a ? 'selected' : ''}>${a}</option>`).join('')}</select></div></div>
@@ -370,38 +372,84 @@ function editIng(id) {
       const o = id ? i : { id: uid() }, p = num(val('e_p')), c = num(val('e_c')), f = num(val('e_f'));
       if (!val('e_name').trim()) return toast('Podaj nazwę');
       Object.assign(o, { name: val('e_name').trim(), nl: val('e_nl').trim(), unit: val('e_unit'), aisle: val('e_aisle'), p, c, f, kcal: val('e_kcal').trim() ? num(val('e_kcal')) : r0(4 * p + 4 * c + 9 * f), pack: num(val('e_pack')), price: num(val('e_price')), pantry: num(val('e_pantry')), proc: +val('e_proc') }); if (val('e_life').trim()) o.life = num(val('e_life')); else delete o.life;
-      delete o.starter; if (!id) S.ingredients.push(o); done();
+      delete o.starter; if (!id) S.ingredients.push(o);
+      if (opts.onDone) { save(); opts.onDone(o); } else done();
     } }]);
+  $('#modal').onclick = async e => {
+    if (!e.target.closest('[data-aifill]')) return;
+    const name = val('e_name').trim(); if (!name) return toast('Najpierw wpisz nazwę produktu');
+    $('#e_ai').textContent = ' Pytam Claude…';
+    try {
+      const txt = await aiAsk(`Podaj typowe wartości odżywcze produktu spożywczego "${name}" (sprzedawanego w holenderskim supermarkecie) na 100 g albo 100 ml (lub na 1 sztukę, jeśli naturalnie liczy się w sztukach). Odpowiedz tylko JSON: {"unit":"g|ml|pcs","kcal":0,"protein":0,"carbs":0,"fat":0,"nl":"holenderska nazwa w sklepie","aisle":"jedno z: ${AISLES.join(', ')}","proc":0,"pack":0,"price":0} gdzie proc: 0 nieprzetworzone, 1 lekko przetworzone, 2 mocno; pack: typowa wielkość opakowania w tej samej jednostce; price: typowa cena opakowania w EUR.`);
+      const j = extractJson(txt); if (!j) throw new Error('nie rozumiem odpowiedzi');
+      if (['g', 'ml', 'pcs'].includes(j.unit)) $('#e_unit').value = j.unit;
+      for (const [k, f] of [['kcal', 'e_kcal'], ['protein', 'e_p'], ['carbs', 'e_c'], ['fat', 'e_f'], ['pack', 'e_pack'], ['price', 'e_price']]) if (j[k] != null) $('#' + f).value = j[k];
+      if (j.nl) $('#e_nl').value = j.nl; if (AISLES.includes(j.aisle)) $('#e_aisle').value = j.aisle; if (j.proc != null) $('#e_proc').value = Math.max(0, Math.min(2, +j.proc || 0));
+      $('#e_ai').textContent = ' Uzupełnione – sprawdź wartości z opakowaniem.';
+    } catch (err) { $('#e_ai').textContent = ' Nie udało się: ' + (err.message || err); }
+  };
   function done() { save(); closeModal(); render(); }
 }
 
-function editRec(id) {
-  const r = id ? rec(id) : { name: '', slots: ['lunch', 'dinner'], tags: [], how: '', prep: '', items: [] };
-  const draft = JSON.parse(JSON.stringify(r));
+function editRec(id, draftIn) {
+  const r = id ? rec(id) : null;
+  const draft = draftIn || (r ? JSON.parse(JSON.stringify(r)) : { name: '', slots: ['dinner'], tags: [], how: '', prep: '', items: [] });
   if (!draft.items.length) draft.items.push({ ing: S.ingredients[0]?.id, amt: 100 });
-  const sync = () => { draft.name = val('r_name'); draft.prep = val('r_prep'); draft.how = val('r_how'); draft.tags = val('r_tags').split(',').map(x => x.trim()).filter(Boolean); draft.slots = SLOTS_ALL.filter(s => $('#r_s_' + s).checked); draft.items.forEach((it, k) => { it.ing = val('r_i' + k); it.amt = num(val('r_a' + k)); }); };
-  const body = () => `<label>Nazwa</label><input id="r_name" value="${esc(draft.name)}">
+  const sortedIng = () => S.ingredients.slice().sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  const sync = () => { draft.name = val('r_name'); draft.prep = val('r_prep'); draft.how = val('r_how'); draft.tags = val('r_tags').split(',').map(x => x.trim()).filter(Boolean); draft.slots = SLOTS_ALL.filter(s => $('#r_s_' + s).checked); draft.items.forEach((it, k) => { it.ing = val('r_i' + k); it.amt = num(val('r_a' + k)); }); draft.fitOnSave = $('#r_fitsave') ? $('#r_fitsave').checked : draft.fitOnSave; draft.ts = val('r_ts') || draft.ts; };
+  const tslot = () => draft.ts || (draft.slots.includes('dinner') ? 'dinner' : draft.slots.includes('lunch') ? 'lunch' : draft.slots.includes('breakfast') ? 'breakfast' : 'dinner');
+  const fitInfo = () => { const T = slotTarget(tslot()), m = recipeMacros(draft); return `cel dla tego posiłku: <b>${T.kcal} kcal · ${T.p} g białka</b> &nbsp;|&nbsp; teraz: <b>${r0(m.kcal)} kcal · ${r0(m.p)} g</b>`; };
+  const body = () => `<label>Nazwa</label><input id="r_name" value="${esc(draft.name)}" placeholder="np. Kurczak z ryżem i brokułami">
     <label>Na jaki posiłek</label><div class="chips">${SLOTS_ALL.map(s => `<label class="row chk"><input type="checkbox" id="r_s_${s}" ${draft.slots.includes(s) ? 'checked' : ''}> ${SLOT_PL[s]}</label>`).join('')}</div>
-    <label>Tagi (po przecinku)</label><input id="r_tags" value="${esc(draft.tags.join(', '))}" placeholder="shake, do zabrania, meal prep…">
+    <details ${draft.items.length <= 1 && !id ? 'open' : ''} style="margin-top:10px"><summary class="sm" style="cursor:pointer"><b>Wklej listę składników</b> (np. „200 g kurczak")</summary>
+      <textarea id="r_paste" rows="4" placeholder="200 g pierś z kurczaka&#10;80 g ryż&#10;150 g brokuły&#10;2 łyżki oliwy" style="margin-top:6px"></textarea>
+      <button class="sm" style="margin-top:6px" data-rparse>Rozpoznaj składniki</button>
+      ${(draft._unknown || []).length ? `<div class="warnbox" style="margin:8px 0 0">Nie znam: ${draft._unknown.map(n => `<button class="sm" data-rnew="${esc(n)}">Dodaj „${esc(n)}"</button>`).join(' ')}</div>` : ''}</details>
     <label>Składniki (na 1 porcję)</label>
-    ${draft.items.map((it, k) => `<div class="row" style="margin-bottom:6px"><select id="r_i${k}" style="flex:2">${S.ingredients.slice().sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(i => `<option value="${i.id}" ${i.id === it.ing ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}</select><input id="r_a${k}" inputmode="decimal" value="${it.amt}" style="flex:1;min-width:0"><span class="mut xs" style="width:30px">${ing(it.ing)?.unit || ''}</span><button class="ghost danger" data-rdel="${k}">✕</button></div>`).join('')}
-    <button class="sm" data-radd>+ składnik</button>
-    <label>Jak przygotować (krótko)</label><textarea id="r_how" rows="2">${esc(draft.how)}</textarea>
+    ${draft.items.map((it, k) => `<div class="row" style="margin-bottom:6px"><select id="r_i${k}" style="flex:2">${sortedIng().map(i => `<option value="${i.id}" ${i.id === it.ing ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}</select><input id="r_a${k}" inputmode="decimal" value="${it.amt}" style="flex:1;min-width:0"><span class="mut xs" style="width:30px">${ing(it.ing)?.unit || ''}</span><button class="ghost danger" data-rdel="${k}" aria-label="Usuń składnik">✕</button></div>`).join('')}
+    <div class="row wrap"><button class="sm" data-radd>+ składnik</button><button class="sm" data-rnew="">+ nowy produkt</button></div>
+    <div class="card" style="margin:12px 0;padding:12px"><h2>Dopasuj ilości do mojego celu</h2>
+      <div class="row wrap"><select id="r_ts" style="width:auto">${['breakfast', 'lunch', 'dinner'].map(s => `<option value="${s}" ${tslot() === s ? 'selected' : ''}>${SLOT_PL[s]}</option>`).join('')}</select></div>
+      <div class="xs" id="r_fit" style="margin:8px 0">${fitInfo()}</div>
+      <div class="row wrap"><button class="sm" data-rfit="k">Dopasuj kalorie</button><button class="sm" data-rfit="kp">Dopasuj kalorie i białko</button></div></div>
+    <label>Jak przygotować (krótko)</label><textarea id="r_how" rows="3" placeholder="Każdy krok w nowej linii">${esc(draft.how)}</textarea>
     <label>Co przygotować z wyprzedzeniem</label><input id="r_prep" value="${esc(draft.prep)}" placeholder="np. Ugotuj ryż na 2–3 dni">
+    <label>Tagi (po przecinku)</label><input id="r_tags" value="${esc(draft.tags.join(', '))}" placeholder="meal prep, szybkie, wegetariańskie…">
+    ${id ? '' : `<label class="row chk" style="margin-top:12px"><input type="checkbox" id="r_fitsave" ${draft.fitOnSave !== false ? 'checked' : ''}> Po zapisaniu dopasuj porcję do mojego celu (kalorie i białko)</label>`}
     <div class="banner sm" id="r_sum" style="margin-top:10px"></div>`;
   const sumHtml = () => `<b>Na porcję:</b> ${macroLine(recipeMacros(draft))} · ${money(recipeCost(draft))}`;
-  const btns = [...(id ? [{ label: 'Usuń', cls: 'danger', fn: () => { if (!confirm('Usunąć przepis?')) return; S.recipes = S.recipes.filter(x => x.id !== id); for (const dp of Object.values(S.plan)) for (const s of SLOTS_ALL) if (dp[s] && dp[s].rid === id) delete dp[s]; save(); closeModal(); render(); } }] : []),
+  const clean = () => { const d = { ...draft }; delete d._unknown; delete d.fitOnSave; delete d.ts; return d; };
+  const btns = [...(id ? [{ label: 'Usuń przepis', cls: 'danger', fn: () => { closeModal(); withUndo(() => { const x = removeRecipe(id); return `Usunięto: ${x ? x.name : 'przepis'}`; }); } }] : []),
   { label: 'Zapisz', cls: 'pri', fn: () => {
     sync(); if (!draft.name.trim()) return toast('Podaj nazwę'); if (!draft.slots.length) return toast('Wybierz posiłek');
-    draft.items = draft.items.filter(x => x.ing && x.amt > 0); delete draft.starter;
-    if (id) Object.assign(r, draft); else { draft.id = uid(); S.recipes.push(draft); }
-    save(); closeModal(); render();
+    draft.items = draft.items.filter(x => x.ing && x.amt > 0); if (!draft.items.length) return toast('Dodaj co najmniej jeden składnik');
+    let note = '';
+    if (!id && draft.fitOnSave !== false) { const T = slotTarget(tslot()), f = fitItems(draft.items, T.kcal, T.p); draft.items = f.items; note = ` – dopasowano do Twojego celu (${f.kcal} kcal, ${f.p} g białka)`; }
+    const out = clean(); delete out.starter;
+    if (id) Object.assign(r, out); else { out.id = uid(); S.recipes.push(out); }
+    save(); closeModal(); render(); toast('Zapisano przepis' + note);
   } }];
+  const refresh = () => { $('#r_sum').innerHTML = sumHtml(); $('#r_fit').innerHTML = fitInfo(); };
   const paint = () => {
     modal(id ? 'Edytuj przepis' : 'Nowy przepis', body(), btns);
-    const m = $('#modal'); $('#r_sum').innerHTML = sumHtml();
-    m.onclick = e => { const t = e.target.closest('[data-radd],[data-rdel]'); if (!t) return; sync(); if (t.hasAttribute('data-radd')) draft.items.push({ ing: S.ingredients[0]?.id, amt: 100 }); else draft.items.splice(+t.dataset.rdel, 1); paint(); e.stopPropagation(); };
-    m.oninput = m.onchange = e => { if (/^r_[ai]\d/.test(e.target.id)) { sync(); $('#r_sum').innerHTML = sumHtml(); } };
+    const m = $('#modal'); refresh();
+    m.onclick = e => {
+      const t = e.target.closest('[data-radd],[data-rdel],[data-rfit],[data-rparse],[data-rnew]'); if (!t) return;
+      sync();
+      if (t.hasAttribute('data-radd')) { draft.items.push({ ing: S.ingredients[0]?.id, amt: 100 }); paint(); }
+      else if (t.hasAttribute('data-rdel')) { draft.items.splice(+t.dataset.rdel, 1); paint(); }
+      else if (t.hasAttribute('data-rfit')) { const T = slotTarget(tslot()), f = fitItems(draft.items, T.kcal, t.dataset.rfit === 'kp' ? T.p : 0); draft.items = f.items; paint(); toast(`Dopasowano: ${f.kcal} kcal, ${f.p} g białka (${f.note})`); }
+      else if (t.hasAttribute('data-rparse')) {
+        const res = parseIngredientLines(val('r_paste'));
+        if (res.items.length) { const untouched = draft.items.length === 1 && draft.items[0].amt === 100; draft.items = (untouched ? [] : draft.items).concat(res.items); }
+        draft._unknown = res.unknown; paint(); toast(res.items.length ? `Rozpoznano ${res.items.length} składników${res.unknown.length ? ', ' + res.unknown.length + ' nieznanych' : ''}` : 'Nie rozpoznałem żadnego składnika');
+      } else if (t.hasAttribute('data-rnew')) {
+        const nm = t.dataset.rnew; draft._unknown = (draft._unknown || []).filter(x => x !== nm);
+        editIng(null, { name: nm, onDone: o => { const only = draft.items.length === 1 && draft.items[0].amt === 100 && draft.items[0].ing === S.ingredients[0]?.id; draft.items = (only ? [] : draft.items).concat([{ ing: o.id, amt: o.unit === 'pcs' ? 1 : 100 }]); editRec(id, draft); } });
+      }
+      e.stopPropagation();
+    };
+    m.oninput = m.onchange = e => { if (/^r_[ai]\d/.test(e.target.id) || e.target.id === 'r_ts') { sync(); refresh(); } };
   };
   paint();
 }
@@ -569,6 +617,7 @@ function onboarding() {
 const ACTIONS = {
   nav: ds => { UI.view = ds.v; render(); window.scrollTo(0, 0); },
   mclose: closeModal,
+  delRec: ds => withUndo(() => { const x = removeRecipe(ds.id); return `Usunięto: ${x ? x.name : 'przepis'}`; }),
   welcomeOk: () => { S.welcomeSeen = true; save(); render(); },
   snapRestore: async ds => { const json = await idbGet(ds.k); if (!json) return toast('Nie mogę wczytać tej wersji'); let d; try { d = JSON.parse(json); } catch (e) { return toast('Ta wersja jest uszkodzona'); } withUndo(() => { const rev = S.rev, chat = S.chat; S = d; S.rev = rev; S.chat = S.chat || chat; migrate(); return 'Przywrócono wersję z ' + new Date(+String(ds.k).slice(5)).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }); },
   undo: () => { if (UI.undoFn) { UI.undoFn(); UI.undoFn = null; } },

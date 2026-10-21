@@ -42,7 +42,7 @@ function migrate() {
   S.ingredients.forEach(i => { if (i.starter) i.name = i.name.replace(' (1 szt.)', ''); });
   if (S.starter !== false && (S.seedVersion || 1) < SEED_VERSION) { // add newly shipped starter food, never touching existing items
     for (const i of d.ingredients) if (!S.ingredients.some(x => x.id === i.id)) S.ingredients.push(i);
-    for (const r of d.recipes) if (!S.recipes.some(x => x.id === r.id || x.name === r.name)) S.recipes.push(r);
+    for (const r of d.recipes) if (!S.recipes.some(x => x.id === r.id || x.name === r.name) && !(S.deletedSeed || []).includes(r.name)) S.recipes.push(r);   // recipes you deleted stay deleted
     for (const sr of d.recipes) { const x = S.recipes.find(y => y.name === sr.name && y.starter); if (x) { x.slots = sr.slots; x.items = sr.items; x.tags = sr.tags; x.how = sr.how || x.how; x.prep = sr.prep; x.big = sr.big; } } // refresh untouched starter recipes (edited ones lose the starter flag and are kept)
     S.seedVersion = SEED_VERSION; setTimeout(() => save(), 0);
   }
@@ -560,4 +560,79 @@ function suggestBaseSet(tries = 500) {
     if (!best || sc < best.sc) best = { sc, ids: [...new Set([...dp, ...dc, ...dv, ...x, ...lp, ...lc, ...lv])] };
   }
   return best ? best.ids : [];
+}
+
+
+/* ============ your own recipes: parse, fit to your targets, delete ============ */
+/* what one meal should deliver for you (average day split by meal) */
+function slotTarget(slot) {
+  const sh = slot === 'snack' ? SHARES4.snack : shareOf(slot);
+  return { kcal: r0(weeklyAvg() * sh), p: r0(S.profile.proteinPerKg * S.profile.weight * sh) };
+}
+/* portion multiplier that makes a recipe match your meal target (used to show "your portion") */
+function fitServ(r) {
+  const slot = r.slots.includes('dinner') ? 'dinner' : r.slots.includes('lunch') ? 'lunch' : r.slots.includes('breakfast') ? 'breakfast' : r.slots[0] || 'dinner', k = recipeMacros(r).kcal;
+  return k > 0 ? clampServ(slotTarget(slot).kcal / k) : 1;
+}
+/* Scale a recipe's amounts to hit a calorie target and, when possible, a protein target:
+   protein sources (meat, fish, dairy, tofu, legumes) and the rest are scaled separately - two equations, two factors. */
+function fitItems(items, tK, tP) {
+  const rows = items.map(x => ({ x, i: ing(x.ing) })).filter(r => r.i && r.x.amt > 0);
+  if (!rows.length || !(tK > 0)) return { items, note: '', kcal: 0, p: 0 };
+  const isProt = r => r.i.p >= 10 && r.i.p * 4 / Math.max(r.i.kcal, 1) >= .3 && r.i.unit !== 'pcs' || (r.i.unit === 'pcs' && r.i.p >= 5);
+  const A = rows.filter(isProt), B = rows.filter(r => !A.includes(r));
+  const sum = g => g.reduce((s, r) => { const m = ingMacros(r.i, r.x.amt); return { k: s.k + m.kcal, p: s.p + m.p }; }, { k: 0, p: 0 });
+  const a = sum(A), b = sum(B);
+  let fa, fb, note = '';
+  const uni = tK / (a.k + b.k), pUni = (a.p + b.p) * uni;
+  if (tP > 0 && A.length && B.length && a.k > 0 && b.k > 0 && pUni < tP * .97) {   // protein is a MINIMUM: only shift towards protein sources when scaling alone falls short
+    const det = a.k * b.p - b.k * a.p;
+    fa = Math.abs(det) > 1e-6 ? (tK * b.p - b.k * tP) / det : 1; fb = Math.abs(det) > 1e-6 ? (a.k * tP - tK * a.p) / det : 1;
+    fa = Math.min(2.5, Math.max(.4, isFinite(fa) ? fa : 1)); fb = Math.min(2.5, Math.max(.3, isFinite(fb) ? fb : 1));
+    const s = tK / (fa * a.k + fb * b.k); fa *= s; fb *= s;     // always land exactly on the calorie target
+    note = `białko ×${(Math.round(fa * 100) / 100).toString().replace('.', ',')}, reszta ×${(Math.round(fb * 100) / 100).toString().replace('.', ',')}`;
+  } else { fa = fb = uni; note = `wszystko ×${(Math.round(fa * 100) / 100).toString().replace('.', ',')}${tP > 0 && pUni >= tP * .97 ? ' (białko i tak ponad cel)' : ''}`; }
+  const out = items.map(x => { const i = ing(x.ing); if (!i || !(x.amt > 0)) return x; const f = A.some(r => r.x === x) ? fa : fb; return { ...x, amt: Math.max(i.unit === 'pcs' ? .5 : 1, cookQty(x.amt * f, i.unit)) }; });
+  const m = out.reduce((s, x) => { const i = ing(x.ing); return i ? addM(s, ingMacros(i, x.amt)) : s; }, ZERO());
+  return { items: out, note, kcal: r0(m.kcal), p: r0(m.p) };
+}
+const stemPl = w => { w = norm(w); return w.length > 4 ? w.replace(/(ami|ach|ow|om|ie|ia|ek|a|y|i|e|u|o)$/, '') : w; };
+function findIngFuzzy(name) {
+  const direct = findIng(name); if (direct) return direct;
+  const q = norm(name).split(' ').filter(t => t.length >= 3).map(stemPl); if (!q.length) return null;
+  let best = null, bs = 0;
+  for (const i of S.ingredients) {
+    const toks = norm(i.name + ' ' + (i.nl || '')).split(' ').filter(t => t.length >= 3).map(stemPl);
+    const hit = q.filter(t => toks.some(u => u === t || (t.length >= 4 && (u.startsWith(t) || t.startsWith(u)) && Math.min(u.length, t.length) >= 4))).length;
+    const sc = hit / q.length + (hit ? .01 / (toks.length || 1) : 0);
+    if (hit && sc > bs) { bs = sc; best = i; }
+  }
+  return bs >= .5 ? best : null;
+}
+/* "200 g kurczak, 1 szt. awokado, 2 łyżki oliwy" -> items matched to your ingredients (+ the names it could not match) */
+function parseIngredientLines(text) {
+  const items = [], unknown = [], U = { g: 'g', gram: 'g', gramy: 'g', gramów: 'g', kg: 'kg', ml: 'ml', l: 'l', litr: 'l', szt: 'pcs', sztuki: 'pcs', sztuk: 'pcs', łyżka: 'tbsp', łyżki: 'tbsp', łyżek: 'tbsp', łyżeczka: 'tsp', łyżeczki: 'tsp', szklanka: 'cup', szklanki: 'cup' };
+  for (let line of String(text || '').split(/\n|;/)) {
+    line = line.trim().replace(/^[-•*–]\s*/, ''); if (!line) continue;
+    const m = /^(\d+(?:[.,]\d+)?|\d+\/\d+|½)\s*([a-zA-Zęóąśłżźćń.]+)?\s+(?:z\s+|of\s+)?(.+)$/.exec(line);
+    let amt = 0, unit = '', name = line;
+    if (m) { amt = m[1] === '½' ? .5 : m[1].includes('/') ? (+m[1].split('/')[0]) / (+m[1].split('/')[1]) : num(m[1]); unit = U[(m[2] || '').toLowerCase().replace(/\.$/, '')] || ''; name = (unit || !m[2]) ? m[3] : (m[2] + ' ' + m[3]); }
+    name = name.replace(/\(.*?\)/g, '').replace(/,.*$/, '').trim();
+    const i = findIngFuzzy(name);
+    if (!i) { unknown.push(name || line); continue; }
+    let a = amt || (i.unit === 'pcs' ? 1 : 100);
+    if (unit === 'kg' || unit === 'l') a *= 1000; else if (unit === 'tbsp') a *= 15; else if (unit === 'tsp') a *= 5; else if (unit === 'cup') a *= 250;
+    else if (unit === 'pcs' && i.unit !== 'pcs') a *= 100;                  // "1 szt." of a gram-based product: assume ~100 g
+    else if ((unit === 'g' || unit === 'ml' || unit === '') && i.unit === 'pcs' && a >= 30 && unit) a = Math.max(.5, a / 100);   // grams of a piece-based product (e.g. 150 g avocado) -> pieces of ~100 g
+    items.push({ ing: i.id, amt: i.unit === 'pcs' ? Math.round(a * 2) / 2 : Math.round(a) });
+  }
+  return { items, unknown };
+}
+function removeRecipe(id) {
+  const r = rec(id); if (!r) return null;
+  if (r.starter) (S.deletedSeed = S.deletedSeed || []).push(r.name);
+  S.recipes = S.recipes.filter(x => x.id !== id);
+  for (const dp of Object.values(S.plan)) for (const s of SLOTS_ALL) if (dp[s] && dp[s].rid === id) delete dp[s];
+  for (const k in S.menus) S.menus[k] = S.menus[k].filter(x => x !== id);
+  return r;
 }

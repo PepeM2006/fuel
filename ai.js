@@ -16,7 +16,7 @@ const AI_TOOLS = [
   { name: 'list_ingredients', description: 'Lista składników z makro na 100 g/ml (lub na sztukę), ceną opakowania i poziomem przetworzenia.', input_schema: { type: 'object', properties: {} } },
   { name: 'add_ingredient', description: 'Dodaje składnik. Makro na 100 g / 100 ml (lub na 1 sztukę, gdy unit=pcs). proc: 0 nieprzetworzone, 1 lekko, 2 mocno przetworzone/cukier.', input_schema: { type: 'object', required: ['name', 'unit', 'kcal', 'protein', 'carbs', 'fat'], properties: { name: { type: 'string' }, nl: { type: 'string', description: 'Holenderska nazwa w sklepie' }, unit: { type: 'string', enum: ['g', 'ml', 'pcs'] }, kcal: { type: 'number' }, protein: { type: 'number' }, carbs: { type: 'number' }, fat: { type: 'number' }, aisle: { type: 'string' }, pack_size: { type: 'number' }, pack_price: { type: 'number', description: 'EUR' }, proc: { type: 'integer' } } } },
   { name: 'update_ingredient', description: 'Zmienia pola istniejącego składnika (cena, opakowanie, makro, nazwa NL itp.).', input_schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, new_name: { type: 'string' }, nl: { type: 'string' }, kcal: { type: 'number' }, protein: { type: 'number' }, carbs: { type: 'number' }, fat: { type: 'number' }, pack_size: { type: 'number' }, pack_price: { type: 'number' }, proc: { type: 'integer' }, aisle: { type: 'string' } } } },
-  { name: 'add_recipe', description: 'Dodaje przepis (na 1 porcję). Składniki podawane nazwą z listy składników (najpierw dodaj brakujące). slots: breakfast, lunch, dinner, snack.', input_schema: { type: 'object', required: ['name', 'slots', 'items'], properties: { name: { type: 'string' }, slots: { type: 'array', items: { type: 'string' } }, items: { type: 'array', items: { type: 'object', required: ['ingredient', 'amount'], properties: { ingredient: { type: 'string' }, amount: { type: 'number' } } } }, how: { type: 'string', description: 'Krótka instrukcja' }, prep: { type: 'string', description: 'Co przygotować z wyprzedzeniem' }, tags: { type: 'array', items: { type: 'string' } } } } },
+  { name: 'add_recipe', description: 'Dodaje przepis (na 1 porcję; domyślnie ilości są automatycznie dopasowane do celu kalorii i białka użytkownika dla tego posiłku – ustaw fit=false, żeby tego nie robić). Składniki podawane nazwą z listy składników (najpierw dodaj brakujące). slots: breakfast, lunch, dinner, snack.', input_schema: { type: 'object', required: ['name', 'slots', 'items'], properties: { name: { type: 'string' }, slots: { type: 'array', items: { type: 'string' } }, items: { type: 'array', items: { type: 'object', required: ['ingredient', 'amount'], properties: { ingredient: { type: 'string' }, amount: { type: 'number' } } } }, fit: { type: 'boolean', description: 'dopasuj ilości do celu użytkownika (domyślnie true)' }, how: { type: 'string', description: 'Krótka instrukcja' }, prep: { type: 'string', description: 'Co przygotować z wyprzedzeniem' }, tags: { type: 'array', items: { type: 'string' } } } } },
   { name: 'delete_recipe', description: 'Usuwa przepis.', input_schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } },
   { name: 'set_meal', description: 'Ustawia posiłek w planie. recipe="none" czyści slot. Po ustawieniu slot jest zablokowany przed generatorem.', input_schema: { type: 'object', required: ['date', 'slot', 'recipe'], properties: { date: { type: 'string' }, slot: { type: 'string', enum: ['breakfast', 'snack', 'lunch', 'dinner'] }, recipe: { type: 'string' }, servings: { type: 'number' } } } },
   { name: 'set_week_menu', description: 'Ustawia listę przepisów, z których generator ma korzystać w danym tygodniu (pusta lista = wszystkie).', input_schema: { type: 'object', required: ['recipes'], properties: { week_start: { type: 'string' }, recipes: { type: 'array', items: { type: 'string' } } } } },
@@ -63,10 +63,12 @@ const AI_RUN = {
     for (const it of a.items || []) { const i = findIng(it.ingredient); if (i) items.push({ ing: i.id, amt: it.amount }); else missing.push(it.ingredient); }
     if (missing.length) return fail('Nieznane składniki (najpierw je dodaj): ' + missing.join(', '));
     const slots = (a.slots || []).map(slotKey).filter(s => SLOTS_ALL.includes(s)); if (!slots.length) return fail('Podaj poprawne slots');
+    let fitNote = '';
+    if (a.fit !== false) { const t = slotTarget(slots.includes('dinner') ? 'dinner' : slots.includes('lunch') ? 'lunch' : slots.includes('breakfast') ? 'breakfast' : slots[0]), f = fitItems(items, t.kcal, t.p); items.splice(0, items.length, ...f.items); fitNote = f.note; }
     const r = { id: uid(), name: a.name, slots, items, how: a.how || '', prep: a.prep || '', tags: a.tags || [] };
-    S.recipes.push(r); const m = recipeMacros(r); return ok({ added: r.name, per_serving: { kcal: r0(m.kcal), protein: r0(m.p) } });
+    S.recipes.push(r); const m = recipeMacros(r); return ok({ added: r.name, per_serving: { kcal: r0(m.kcal), protein: r0(m.p) }, fitted_to_user_target: fitNote || undefined });
   },
-  delete_recipe: a => { const r = findRec(a.name); if (!r) return fail('Nie znaleziono przepisu'); S.recipes = S.recipes.filter(x => x.id !== r.id); for (const dp of Object.values(S.plan)) for (const s of SLOTS_ALL) if (dp[s] && dp[s].rid === r.id) delete dp[s]; for (const k in S.menus) S.menus[k] = S.menus[k].filter(x => x !== r.id); return ok({ deleted: r.name }); },
+  delete_recipe: a => { const r = findRec(a.name); if (!r) return fail('Nie znaleziono przepisu'); removeRecipe(r.id); return ok({ deleted: r.name }); },
   set_meal: a => {
     const s = slotKey(a.slot), dp = S.plan[a.date] || (S.plan[a.date] = {});
     if (norm(a.recipe) === 'none') { delete dp[s]; return ok({ cleared: s }); }
@@ -183,4 +185,12 @@ async function callApi(payload) {
   if (!key) return new Response(JSON.stringify({ error: { message: 'Brak klucza API – dodaj go w zakładce Asystent.' } }), { status: 400 });
   return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
     body: JSON.stringify({ model: localStorage.getItem('fuel-model') || 'claude-sonnet-5-5', max_tokens: payload.max_tokens || 2048, system: payload.system, tools: payload.tools, messages: payload.messages }) });
+}
+
+/* one-shot question to Claude (PC login or API key); returns text */
+async function aiAsk(prompt, system = 'Odpowiadaj wyłącznie jednym obiektem JSON.') {
+  const cfg = UI.cfg || {};
+  if (cfg.mode === 'cli') { const r = await fetch('/api/ai/cli', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: system + '\n\n' + prompt }) }), j = await r.json(); if (!r.ok) throw new Error((j.error && j.error.message) || 'błąd'); return j.text || ''; }
+  if (cfg.mode === 'api') { const r = await callApi({ system, messages: [{ role: 'user', content: prompt }], max_tokens: 500 }), j = await r.json(); if (!r.ok) throw new Error((j.error && (j.error.message || j.error)) || 'błąd'); return (j.content || []).map(b => b.text || '').join(''); }
+  throw new Error('Asystent nie jest połączony');
 }
