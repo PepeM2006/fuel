@@ -66,9 +66,14 @@ function viewToday() {
   return h + `<div class="today2"><div class="tl">${L}</div><div class="tr">${Rt}</div></div>`;
 }
 
+function saveBar() {
+  const d = Math.floor((parseD(today()) - parseD(S.lastBackup || today())) / 864e5), cfg = typeof syncCfg === 'function' && syncCfg();
+  return `<div class="savebar"><div class="xs mut">✓ Plan, zakupy i ustawienia zapisują się same ${UI.local ? 'na tym telefonie' : 'na komputerze'}${cfg ? ' i w synchronizacji' : ''}. Kopia zapasowa: ${d <= 0 ? 'dziś' : d + ' dni temu'}.</div><button class="sm pri" data-act="saveBackup">Zapisz kopię</button></div>`;
+}
 function viewPlan() {
   const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0 }, menu = S.menus[wk] || [];
   let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
+  h += saveBar();
   h += `<div class="card"><div class="row wrap"><button class="pri" data-act="menuPicker">Wybierz dania na tydzień</button><button data-act="gen">Wygeneruj tydzień</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost danger" data-act="clearWeek">Wyczyść</button></div>
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Nie wybrałeś menu – generator użyje wszystkich przepisów. Wybierz dania, a lista zakupów powstanie z nich.'}</div>
     <div class="grid2" style="margin-top:10px">
@@ -134,6 +139,7 @@ function viewShop() {
   const all = shopList(wk), buy = shopSorted(all), covered = all.filter(r => r.buy <= .01);
   if (!all.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
   const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id + '|' + r.trip]).length;
+  h += saveBar();
   h += `<div class="row wrap" style="margin-bottom:8px"><span class="pill">${buy.length} pozycji · ~${money(total)}</span><span class="pill soft">${done}/${buy.length} w koszyku</span>${covered.length ? `<span class="pill soft">${covered.length} masz w domu</span>` : ''}<select data-bind="profile.store" style="width:auto">${STORES.map(s => `<option ${S.profile.store === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
     <div class="row wrap"><button class="pri" data-act="toReminders">Do Przypomnień</button><button data-act="copyList">Kopiuj / udostępnij</button></div>
     <div class="row wrap" style="margin-top:8px"><button class="sm" data-act="checkAll">Zaznacz wszystko</button><button class="sm" data-act="boughtToPantry">Dodaj zaznaczone do lodówki</button><button class="sm" data-act="ftabFridge">Co mam w domu</button></div>
@@ -553,6 +559,7 @@ const ACTIONS = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); render();
   },
   import: () => $('#bk').click(),
+  saveBackup: async () => { await ACTIONS.export(); toast('Kopia zapisana – zawiera plan, zakupy i ustawienia'); },
   aiSend: () => { const t = $('#aiin'); const v = t && t.value.trim(); if (!v || UI.aiBusy) return; t.value = ''; aiSend(v); },
   aiSuggest: ds => { aiSend(UI.sugg[+ds.i]); },
   aiClear: () => { S.chat = []; save(); render(); },
@@ -607,7 +614,16 @@ document.addEventListener('change', e => {
     o[k] = v; save(); render(); return;
   }
   if (t.id === 'csv' && t.files[0]) t.files[0].text().then(txt => { const r = importWorkouts(txt); if (r.err) toast(r.err); else { save(); render(); toast(`Zaimportowano ${r.n} dni treningowych`); } });
-  if (t.id === 'bk' && t.files[0]) t.files[0].text().then(txt => { try { const d = JSON.parse(txt); if (!d.profile) throw 0; d.rev = S.rev; S = d; migrate(); save(); render(); toast('Kopia przywrócona'); } catch (e) { toast('To nie jest poprawna kopia'); } });
+  if (t.id === 'bk' && t.files[0]) t.files[0].text().then(txt => {
+    let d; try { d = JSON.parse(txt); if (!d.profile) throw 0; } catch (e) { return toast('To nie jest poprawna kopia'); }
+    const when = d.lastBackup || '?', days = Object.keys(d.plan || {}).length;
+    modal('Wczytać kopię?', `<p class="sm" style="margin-top:0">Kopia z ${esc(when)} · plan na ${days} dni, ${Object.keys(d.log || {}).length} dni z wpisami.</p>
+      <div class="sm"><b>Scal</b> – dołącza z kopii plan, zakupy, wpisy i ustawienia do tego, co masz tutaj (przy tym samym polu wygrywa kopia). Najbezpieczniejsze.</div>
+      <div class="sm" style="margin-top:8px"><b>Zastąp</b> – wszystko tutaj zostanie zamienione na zawartość kopii.</div>`,
+      [{ label: 'Zastąp wszystko', cls: 'danger', fn: () => withUndo(() => { d.rev = S.rev; const chat = S.chat; S = d; S.chat = S.chat || chat; migrate(); closeModal(); return 'Kopia wczytana (zastąpiono)'; }) },
+      { label: 'Scal', cls: 'pri', fn: () => withUndo(() => { const keep = { chat: S.chat, rev: S.rev }; S = Object.assign({}, merge3({}, syncView(d), syncView(S)), keep); migrate(); closeModal(); return 'Kopia scalona z tym, co tu masz'; }) }]);
+    t.value = '';
+  });
 });
 document.addEventListener('input', e => { if (e.target.id === 'q' && e.target.hasAttribute('data-bind-q')) { UI.q = e.target.value; render(); } });
 document.addEventListener('visibilitychange', () => syncFromServer());
