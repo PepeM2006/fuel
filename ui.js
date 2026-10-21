@@ -21,47 +21,54 @@ function viewToday() {
   const train = isTrain(d), wk = S.workouts[d], isToday = d === today();
   let h = '';
   if (S.starter) h += `<div class="banner"><b>Witaj.</b> Wgrałem startowe składniki i przepisy (bez cukru, mało przetworzone, typowe holenderskie produkty). Zajrzyj do <b>Jedzenie</b>, żeby sprawdzić makro i ceny, oraz do <b>Ja</b>, żeby ustawić swoje dane. <div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="nav" data-v="plan">Zaplanuj tydzień →</button><button class="sm" data-act="clearStarter">Usuń wszystkie startowe</button></div></div>`;
-  h += `<div class="top"><div><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isToday ? 'Dziś' : esc(DAYFULL[wdIdx(d)])}</h1></div><div class="row"><button class="icon" data-act="day" data-n="-1">‹</button>${isToday ? '' : '<button class="sm" data-act="dayToday">Dziś</button>'}<button class="icon" data-act="day" data-n="1">›</button></div></div>`;
+  const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent), isMobile = /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+  let hide = ''; try { hide = localStorage.getItem('fuel-hide-install') || ''; } catch (e) { }
+  if (UI.local && isMobile && !standalone && !hide) h += `<div class="banner sm"><b>Zrób z tego aplikację.</b> ${isIOS ? 'W Safari dotknij „Udostępnij" → „Do ekranu początkowego".' : UI.installEvt ? 'Dodaj Fuel do ekranu głównego, żeby działał jak zwykła aplikacja, także offline.' : 'W menu przeglądarki (⋮) wybierz „Zainstaluj aplikację" lub „Dodaj do ekranu głównego".'}<div class="row wrap" style="margin-top:8px">${UI.installEvt ? '<button class="pri sm" data-act="installApp">Zainstaluj</button>' : ''}<button class="sm" data-act="hideInstall">Nie teraz</button></div></div>`;
+  const bdays = UI.local ? Math.floor((parseD(today()) - parseD(S.lastBackup || today())) / 864e5) : 0;
+  if (UI.local && bdays >= 7) h += `<div class="warnbox">Ostatnia kopia zapasowa: ${bdays} dni temu. Dane są tylko na tym telefonie – <button class="sm" data-act="export">Pobierz kopię</button></div>`;
+  h += `<div class="top"><div><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isToday ? 'Dziś' : esc(DAYFULL[wdIdx(d)])}</h1></div><div class="row"><button class="icon" aria-label="Poprzedni dzień" data-act="day" data-n="-1">‹</button>${isToday ? '' : '<button class="sm" data-act="dayToday">Dziś</button>'}<button class="icon" aria-label="Następny dzień" data-act="day" data-n="1">›</button></div></div>`;
   const fmt = n => r0(n).toLocaleString('pl-PL'), over = remain < -150;
-  h += `<div class="card main"><div class="row sp" style="align-items:flex-end;gap:12px"><div><div class="num ${over ? 'over' : ''}">${fmt(Math.abs(remain))}</div><div class="lab">${remain >= 0 ? 'kcal do celu na dziś' : 'kcal ponad cel'}</div></div><button class="${train ? 'on' : ''}" data-act="toggleTrain">${train ? 'Dzień treningowy' : 'Dzień wolny'}</button></div>
+  let L = '', Rt = '';
+  L += `<div class="card main"><div class="row sp" style="align-items:flex-end;gap:12px"><div><div class="num ${over ? 'over' : ''}">${fmt(Math.abs(remain))}</div><div class="lab">${remain >= 0 ? 'kcal do celu na dziś' : 'kcal ponad cel'}</div></div><button class="${train ? 'on' : ''}" data-act="toggleTrain">${train ? 'Dzień treningowy' : 'Dzień wolny'}</button></div>
     <div class="track"><div class="${over ? 'over' : ''}" style="width:${pct * 100}%"></div></div>
     <div class="row sp xs mut"><span>zjedzone ${fmt(c.kcal)}</span><span>cel ${fmt(t.kcal)}${S.adjust[d] ? ` (${r0(S.adjust[d])} po cheat meal)` : ''}${left.kcal ? ` · w planie ${fmt(left.kcal)}` : ''}</span></div>
     <div class="macros">${[['Białko', c.p, t.p, 'p'], ['Węglowodany', c.c, t.c, 'c'], ['Tłuszcz', c.f, t.f, 'f']].map(([l, v, mx, k]) => `<div><div class="ml">${l}</div><div class="mv">${r0(v)}<span> / ${r0(mx)} g</span></div><div class="mini"><div class="${k}" style="width:${Math.min(100, v / mx * 100)}%"></div></div></div>`).join('')}</div></div>`;
   // training card
-  h += `<div class="card"><div class="row sp"><h2 style="margin:0">Trening</h2><button class="sm" data-act="logWorkout">+ Zapisz trening</button></div>`;
-  if (wk && wk.done !== false && (wk.name || wk.sets || wk.min || wk.volume)) h += `<div style="margin-top:8px"><b>${esc(wk.name || 'Trening')}</b> <span class="mut sm">${wk.sets ? '· ' + wk.sets + ' serii ' : ''}${wk.volume ? '· ' + r0(wk.volume) + ' kg objętości ' : ''}${wk.min ? '· ' + wk.min + ' min ' : ''}· ${({ csv: 'import CSV', webhook: 'automatycznie', link: 'z linku', manual: 'ręcznie' })[wk.source] || ''}</span></div>`;
-  else h += `<div class="mut sm" style="margin-top:6px">${train ? 'Dzień treningowy – cel kalorii podniesiony. Po treningu zapisz go tutaj (albo zrób to automatycznie: Ja → Trening).' : 'Dzień wolny od treningu – cel kalorii obniżony. Trenowałeś mimo to? Dotknij „Zapisz trening".'}</div>`;
-  if (train && isToday) h += `<div class="xs mut" style="margin-top:6px">Węglowodany (owsianka, banan) 1–2 h przed treningiem, a po treningu kolacja z białkiem.</div>`;
-  h += `</div>`;
+  Rt += `<div class="card"><div class="row sp"><h2 style="margin:0">Trening</h2><button class="sm" data-act="logWorkout">+ Zapisz trening</button></div>`;
+  if (wk && wk.done !== false && (wk.name || wk.sets || wk.min || wk.volume)) Rt += `<div style="margin-top:8px"><b>${esc(wk.name || 'Trening')}</b> <span class="mut sm">${wk.sets ? '· ' + wk.sets + ' serii ' : ''}${wk.volume ? '· ' + r0(wk.volume) + ' kg objętości ' : ''}${wk.min ? '· ' + wk.min + ' min ' : ''}· ${({ csv: 'import CSV', webhook: 'automatycznie', link: 'z linku', manual: 'ręcznie' })[wk.source] || ''}</span></div>`;
+  else Rt += `<div class="mut sm" style="margin-top:6px">${train ? 'Dzień treningowy – cel kalorii podniesiony. Po treningu zapisz go tutaj (albo zrób to automatycznie: Ja → Trening).' : 'Dzień wolny od treningu – cel kalorii obniżony. Trenowałeś mimo to? Dotknij „Zapisz trening".'}</div>`;
+  if (train && isToday) Rt += `<div class="xs mut" style="margin-top:6px">Węglowodany (owsianka, banan) 1–2 h przed treningiem, a po treningu kolacja z białkiem.</div>`;
+  Rt += `</div>`;
   // protein gap
   const pgap = t.p - c.p - left.p;
   if (pgap > 12) {
     const ideas = S.ingredients.filter(i => i.p >= 10 && i.kcal > 0 && i.unit !== 'pcs' && (S.profile.clean ? (i.proc || 0) < 2 : true)).sort((a, b) => b.p / b.kcal - a.p / a.kcal).slice(0, 2);
-    h += `<div class="warnbox">Do celu białka brakuje ~${r0(pgap)} g${ideas.length ? ' – np. ' + ideas.map(i => `${r0(pgap / (i.p / 100))} ${i.unit} ${esc(i.name.toLowerCase())}`).join(' albo ') : ''}.</div>`;
+    Rt += `<div class="warnbox">Do celu białka brakuje ~${r0(pgap)} g${ideas.length ? ' – np. ' + ideas.map(i => `${r0(pgap / (i.p / 100))} ${i.unit} ${esc(i.name.toLowerCase())}`).join(' albo ') : ''}.</div>`;
   }
   // prep
   const prep = [];
   for (const dd of [d, addDays(d, 1)]) for (const s of SL()) { const it = (S.plan[dd] || {})[s], r = live(it) && rec(it.rid); if (r && r.prep && !it.eaten && !prep.find(p => p.r === r.id)) prep.push({ r: r.id, txt: r.prep, name: r.name, day: dd === d ? 'dziś' : 'jutro' }); }
-  if (prep.length) h += `<div class="card"><h2>Przygotowanie</h2>${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
+  if (prep.length) Rt += `<div class="card"><h2>Przygotowanie</h2>${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
   // meals
-  h += `<div class="card"><h2>Posiłki</h2>`;
-  if (!SL().some(s => dp[s])) h += `<div class="banner sm" style="margin:0 0 8px"><b>Nie masz jeszcze planu na ten tydzień.</b> Wybierz dania albo pozwól aplikacji ułożyć tydzień – lista zakupów powstanie sama.<div class="row wrap" style="margin-top:10px"><button class="pri sm" data-act="genWeekHere">Wygeneruj tydzień</button><button class="sm" data-act="menuHere">Wybierz dania</button></div></div>`;
+  L += `<div class="card mealscard"><h2>Posiłki</h2>`;
+  if (!SL().some(s => dp[s])) L += `<div class="banner sm" style="margin:0 0 8px"><b>Nie masz jeszcze planu na ten tydzień.</b> Wybierz dania albo pozwól aplikacji ułożyć tydzień – lista zakupów powstanie sama.<div class="row wrap" style="margin-top:10px"><button class="pri sm" data-act="genWeekHere">Wygeneruj tydzień</button><button class="sm" data-act="menuHere">Wybierz dania</button></div></div>`;
   for (const s of SL()) {
     const it = dp[s];
     if (live(it)) {
       const r = rec(it.rid), m = itemMacros(it);
-      h += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
+      L += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
         <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)} ${it.serv !== 1 ? `<span class="tag">×${it.serv}</span>` : ''}</div><div class="mut xs">${macroLine(m)}</div></div></div>${it.eaten ? '' : optsHtml(d, s)}`;
-    } else h += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
+    } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
-  for (const e of S.log[d] || []) h += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
-  h += `<div class="row wrap" style="margin-top:12px"><button class="pri" data-act="addFood">+ Dodaj jedzenie</button><button data-act="cheat">Cheat meal</button><button data-act="refit">Dopasuj porcje</button></div></div>`;
-  return h;
+  for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
+  L += `<div class="row wrap" style="margin-top:12px"><button class="pri" data-act="addFood">+ Dodaj jedzenie</button><button data-act="cheat">Cheat meal</button><button data-act="refit">Dopasuj porcje</button></div></div>`;
+  return h + `<div class="today2"><div class="tl">${L}</div><div class="tr">${Rt}</div></div>`;
 }
 
 function viewPlan() {
   const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0 }, menu = S.menus[wk] || [];
-  let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" data-act="week" data-n="-1">‹</button><button class="icon" data-act="week" data-n="1">›</button></div></div>`;
+  let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
   h += `<div class="card"><div class="row wrap"><button class="pri" data-act="menuPicker">Wybierz dania na tydzień</button><button data-act="gen">Wygeneruj tydzień</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost danger" data-act="clearWeek">Wyczyść</button></div>
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Nie wybrałeś menu – generator użyje wszystkich przepisów. Wybierz dania, a lista zakupów powstanie z nich.'}</div>
     <div class="grid2" style="margin-top:10px">
@@ -111,7 +118,7 @@ function viewPlan() {
 
 function viewShop() {
   const wk = UI.week, rows = shopList(wk), chk = S.shopChecked[wk] || (S.shopChecked[wk] = {});
-  let h = `<div class="top"><div><div class="eyebrow">${esc(S.profile.store)} · tydzień od ${esc(fmtDay(wk))}</div><h1>Lista zakupów</h1></div><div class="row"><button class="icon" data-act="week" data-n="-1">‹</button><button class="icon" data-act="week" data-n="1">›</button></div></div>`;
+  let h = `<div class="top"><div><div class="eyebrow">${esc(S.profile.store)} · tydzień od ${esc(fmtDay(wk))}</div><h1>Lista zakupów</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
   const buy = shopSorted(rows), have = rows.filter(r => r.buy <= .01);
   if (!buy.length && !have.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
   const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id]).length;
@@ -206,6 +213,7 @@ function viewMe() {
   for (let i = 0; i < 7; i++) { const d = addDays(ws, i); if (d > today()) break; const c = consumed(d), t = targets(d); if (c.kcal < 1) continue; nd++; sk += c.kcal; sp += c.p; if (c.p >= t.p * .95) hit++; if (isTrain(d)) ns++; }
   h += `<div class="card"><h2>Ten tydzień</h2>${weekChart()}<div class="sm">${nd ? `Średnio ${r0(sk / nd)} kcal i ${r0(sp / nd)} g białka · cel białka trafiony ${hit}/${nd} dni · treningi: ${ns}` : 'Odhaczaj posiłki w „Dziś", a tu pojawi się podsumowanie.'}</div><div class="mut xs">Pełne słupki = zjedzone, obrys = cel.</div></div>`;
   const ips = cfg.ips || [], ip = ips.find(x => x.startsWith('192.168.')) || ips[0], phoneUrl = ip ? `http://${ip}:${cfg.port || 8780}` : '';
+  if (!UI.local && typeof qrcode !== 'function' && !UI.qrLoading) { UI.qrLoading = true; const sc = document.createElement('script'); sc.src = 'qrcode.js'; sc.onload = () => { if (UI.view === 'me') render(); }; document.head.appendChild(sc); }
   let qr = ''; try { if (phoneUrl && typeof qrcode === 'function') { const q = qrcode(0, 'M'); q.addData(phoneUrl); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); } } catch (e) { qr = ''; }
   if (UI.local) h += `<div class="card"><h2>Ta aplikacja</h2><div class="sm">Działa samodzielnie na tym urządzeniu, także bez internetu i bez komputera. Twoje dane są tylko tutaj – pobieraj kopię (na dole), żeby ich nie stracić.</div><div class="xs mut" style="margin-top:8px">Chcesz przenieść dane z komputera? Na komputerze: Ja → „Pobierz kopię”, wyślij plik na telefon i tu użyj „Przywróć kopię”.</div></div>`;
   else {
@@ -225,6 +233,7 @@ function render() {
   $('#app').innerHTML = v();
   if (aiText && $('#aiin')) $('#aiin').value = aiText;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === UI.view));
+  try { document.title = UI.view === 'today' ? `${r0(targets(UI.date).kcal - consumed(UI.date).kcal).toLocaleString('pl-PL')} kcal · Fuel` : 'Fuel'; } catch (e) { }
   if (UI.view !== 'ai') window.scrollTo(0, y); else scrollChat();
   if (focus === 'q') { const q = $('#q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
 }
@@ -233,7 +242,7 @@ function render() {
 function modal(title, body, buttons = []) {
   const m = $('#modal');
   m.onclick = m.oninput = m.onchange = null;
-  m.innerHTML = `<div class="mh"><h3>${esc(title)}</h3><button class="ghost" data-act="mclose">✕</button></div><div class="mb">${body}</div>${buttons.length ? `<div class="mf">${buttons.map((b, i) => `<button class="${b.cls || ''}" data-mbtn="${i}">${esc(b.label)}</button>`).join('')}</div>` : ''}`;
+  m.innerHTML = `<div class="mh"><h3>${esc(title)}</h3><button class="ghost" aria-label="Zamknij" data-act="mclose">✕</button></div><div class="mb">${body}</div>${buttons.length ? `<div class="mf">${buttons.map((b, i) => `<button class="${b.cls || ''}" data-mbtn="${i}">${esc(b.label)}</button>`).join('')}</div>` : ''}`;
   modal.btns = buttons;
   if (!m.open) m.showModal();
 }
@@ -425,6 +434,9 @@ function onboarding() {
 const ACTIONS = {
   nav: ds => { UI.view = ds.v; render(); window.scrollTo(0, 0); },
   mclose: closeModal,
+  undo: () => { if (UI.undoFn) { UI.undoFn(); UI.undoFn = null; } },
+  hideInstall: () => { try { localStorage.setItem('fuel-hide-install', '1'); } catch (e) { } render(); },
+  installApp: async () => { const e = UI.installEvt; if (!e) return; e.prompt(); try { await e.userChoice; } catch (x) { } UI.installEvt = null; render(); },
   day: ds => { UI.date = addDays(UI.date, +ds.n); render(); },
   dayToday: () => { UI.date = today(); render(); },
   week: ds => { UI.week = addDays(UI.week, 7 * +ds.n); render(); },
@@ -432,24 +444,24 @@ const ACTIONS = {
   eat: (ds, el) => { setEaten(ds.d, ds.s, el.checked); save(); render(); },
   viewMeal: ds => { const it = (S.plan[ds.d] || {})[ds.s]; if (live(it)) viewRec(it.rid, it.serv, { d: ds.d, s: ds.s }); },
   viewRec: ds => viewRec(ds.id, +ds.serv || 1),
-  delLog: ds => { removeLog(ds.d, ds.id); save(); render(); },
+  delLog: ds => withUndo(() => { removeLog(ds.d, ds.id); return 'Usunięto wpis'; }),
   addFood, cheat: cheatDialog, logWorkout: workoutDialog, menuPicker,
   refit: () => { refitDay(UI.date); save(); render(); toast('Porcje dopasowane do dzisiejszego celu'); },
   clearStarter: () => { if (!confirm('Usunąć wszystkie startowe składniki i przepisy? (Twoje własne zostaną.)')) return; S.ingredients = S.ingredients.filter(i => !i.starter); S.recipes = S.recipes.filter(r => !r.starter); S.starter = false; S.plan = {}; S.menus = {}; save(); render(); },
-  gen: () => { const w = generate(UI.week); save(); render(); toast(w.length ? w[0] : 'Plan wygenerowany'); },
-  genFill: () => { const w = generate(UI.week, { keep: true }); save(); render(); toast(w.length ? w[0] : 'Uzupełniono puste miejsca'); },
-  genDay: ds => { generate(UI.week, { only: ds.d }); save(); render(); },
-  clearWeek: () => { if (!confirm('Wyczyścić plan tego tygodnia (poza zjedzonymi posiłkami)?')) return; for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(UI.week, i)]; if (dp) for (const s of SLOTS_ALL) if (dp[s] && !dp[s].eaten) delete dp[s]; } save(); render(); },
+  gen: () => withUndo(() => { const w = generate(UI.week); return w.length ? w[0] : 'Plan wygenerowany'; }),
+  genFill: () => withUndo(() => { const w = generate(UI.week, { keep: true }); return w.length ? w[0] : 'Uzupełniono puste miejsca'; }),
+  genDay: ds => withUndo(() => { generate(UI.week, { only: ds.d }); return 'Wylosowano ten dzień'; }),
+  clearWeek: () => withUndo(() => { for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(UI.week, i)]; if (dp) for (const s of SLOTS_ALL) if (dp[s] && !dp[s].eaten) delete dp[s]; } return 'Plan wyczyszczony'; }),
   editSlot: ds => editSlot(ds.d, ds.s),
-  swapOpt: ds => { swapMeal(ds.d, ds.s, ds.rid, +ds.serv); save(); closeModal(); render(); toast('Zmieniono posiłek'); },
+  swapOpt: ds => { closeModal(); withUndo(() => { swapMeal(ds.d, ds.s, ds.rid, +ds.serv); return 'Zmieniono posiłek'; }); },
   rotOpt: ds => { UI.rot = UI.rot || {}; UI.rot[ds.d + ds.s] = (UI.rot[ds.d + ds.s] || 0) + 1; if ($('#modal').open) { closeModal(); editSlot(ds.d, ds.s); } else render(); },
-  applySwap: ds => { const it = S.plan[ds.d][ds.s]; it.rid = ds.rid; it.serv = +ds.serv; save(); render(); },
+  applySwap: ds => withUndo(() => { const it = S.plan[ds.d][ds.s]; it.rid = ds.rid; it.serv = +ds.serv; return 'Zamieniono danie'; }),
   ftab: ds => { UI.foodsTab = ds.t; UI.q = ''; render(); },
   sfilter: ds => { UI.slotFilter = ds.k; render(); },
   editIng: ds => editIng(ds.id), editRec: ds => editRec(ds.id),
   trainDay: ds => { const a = S.profile.trainDays, i = +ds.i; S.profile.trainDays = a.includes(i) ? a.filter(x => x !== i) : [...a, i].sort(); save(); render(); },
   shopChk: (ds, el) => { (S.shopChecked[UI.week] = S.shopChecked[UI.week] || {})[ds.id] = el.checked; save(); render(); },
-  genWeekHere: () => { UI.week = weekStart(UI.date); const w = generate(UI.week); save(); render(); toast(w.length ? w[0] : 'Plan wygenerowany – sprawdź listę zakupów'); },
+  genWeekHere: () => { UI.week = weekStart(UI.date); withUndo(() => { const w = generate(UI.week); return w.length ? w[0] : 'Plan wygenerowany – sprawdź listę zakupów'; }); },
   menuHere: () => { UI.week = weekStart(UI.date); menuPicker(); },
   checkAll: () => { const chk = S.shopChecked[UI.week] = S.shopChecked[UI.week] || {}; const rows = shopSorted(shopList(UI.week)); const all = rows.every(r => chk[r.i.id]); rows.forEach(r => chk[r.i.id] = !all); save(); render(); },
   toReminders: () => { if (!remindersText(UI.week)) return toast('Lista zakupów jest pusta'); if (!localStorage.getItem('fuel-rem-ready')) remindersSetup(); else launchReminders(); },
@@ -463,7 +475,12 @@ const ACTIONS = {
     save(); render(); toast(n ? `${n} pozycji dodano do spiżarni` : 'Najpierw zaznacz kupione rzeczy');
   },
   copyHook: async () => { try { await navigator.clipboard.writeText($('#hook').textContent); toast('Skopiowano adres'); } catch (e) { prompt('Skopiuj:', $('#hook').textContent); } },
-  export: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' })); a.download = `fuel-kopia-${today()}.json`; a.click(); },
+  export: async () => {
+    S.lastBackup = today(); save();
+    const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' }), name = `fuel-kopia-${today()}.json`;
+    try { const f = new File([blob], name, { type: 'application/json' }); if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: 'Kopia Fuel' }); render(); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); render();
+  },
   import: () => $('#bk').click(),
   aiSend: () => { const t = $('#aiin'); const v = t && t.value.trim(); if (!v || UI.aiBusy) return; t.value = ''; aiSend(v); },
   aiSuggest: ds => { aiSend(UI.sugg[+ds.i]); },
@@ -498,11 +515,39 @@ document.addEventListener('change', e => {
   if (t.id === 'bk' && t.files[0]) t.files[0].text().then(txt => { try { const d = JSON.parse(txt); if (!d.profile) throw 0; d.rev = S.rev; S = d; migrate(); save(); render(); toast('Kopia przywrócona'); } catch (e) { toast('To nie jest poprawna kopia'); } });
 });
 document.addEventListener('input', e => { if (e.target.id === 'q' && e.target.hasAttribute('data-bind-q')) { UI.q = e.target.value; render(); } });
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState !== 'visible' || UI.dirty || saving || UI.local) return;
-  const r = await fetch('/api/data'); const d = await r.json();
-  if (d.rev !== S.rev && d.profile && !$('#modal').open) { S = d; migrate(); render(); }
+document.addEventListener('visibilitychange', () => syncFromServer());
+
+function withUndo(fn) {
+  const snap = snapshot(); let msg;
+  try { msg = fn(); } catch (e) { restore(snap); toast('Coś poszło nie tak: ' + e.message); return; }
+  save(); render();
+  UI.undoFn = () => { restore(snap); save(); render(); toast('Cofnięto'); };
+  toast(msg || 'Gotowe', true);
+}
+async function syncFromServer() {   // pick up changes made on another device (phone <-> PC) or by the workout webhook
+  if (UI.local || document.visibilityState !== 'visible' || UI.dirty || saving || $('#modal').open) return;
+  try {
+    const { rev } = await (await fetch('/api/rev')).json();
+    if (rev === S.rev) return;
+    const d = await (await fetch('/api/data')).json();
+    if (d.profile && !UI.dirty && !$('#modal').open) { S = d; migrate(); render(); }
+  } catch (e) { }
+}
+setInterval(syncFromServer, 20000);
+document.addEventListener('keydown', e => {   // desktop: ← → move between days / weeks
+  if (e.target.matches('input,textarea,select') || $('#modal').open || e.metaKey || e.ctrlKey || e.altKey) return;
+  const n = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0; if (!n) return;
+  if (UI.view === 'today') ACTIONS.day({ n }); else if (UI.view === 'plan' || UI.view === 'shop') ACTIONS.week({ n });
 });
+let tch = null;   // phone: swipe left/right on Today = next/previous day
+document.addEventListener('touchstart', e => { const t = e.touches[0]; tch = { x: t.clientX, y: t.clientY, t: Date.now() }; }, { passive: true });
+document.addEventListener('touchend', e => {
+  if (!tch || UI.view !== 'today' || $('#modal').open || e.target.closest('.orow,input,select,textarea,.chat')) return;
+  const t = e.changedTouches[0], dx = t.clientX - tch.x, dy = t.clientY - tch.y;
+  if (Math.abs(dx) > 80 && Math.abs(dy) < 40 && Date.now() - tch.t < 450) ACTIONS.day({ n: dx < 0 ? 1 : -1 });
+  tch = null;
+}, { passive: true });
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); UI.installEvt = e; if (UI.view === 'today') render(); });
 
 /* ============ boot ============ */
 $('#nav').innerHTML = `<div class="brand">Fuel</div>` + NAV.map(([k, l]) => `<button data-act="nav" data-v="${k}">${svg(k)}<span>${l}</span></button>`).join('');

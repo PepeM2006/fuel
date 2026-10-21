@@ -98,3 +98,15 @@ ol.steps{margin:6px 0 0;padding-left:20px}ol.steps li{margin:6px 0;font-size:14.
 .qr{width:112px;flex:none;background:#fff;border-radius:10px;padding:4px}.qr svg{display:block;width:100%;height:auto}
 details summary{list-style:revert}
 .opt span.ok{color:var(--acc)}
+
+/* ---- polish: phone + desktop ---- */
+button,a,label,input,select,summary{touch-action:manipulation}
+@media(max-width:900px){input,select,textarea{font-size:16px}}                 /* no zoom-on-focus on iPhone */
+@media(pointer:coarse){input[type=checkbox]{width:26px;height:26px}button.sm{min-height:36px}.slotrow{padding:13px 8px}#nav button{padding:8px 0}.opt{padding:9px 11px}}
+.mf{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+.today2{display:flex;flex-direction:column}.tl,.tr{display:contents}
+.tl>.main{order:1}.tr>*{order:2}.tl>.mealscard{order:3}
+@media(min-width:1100px){.today2{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:0 26px;align-items:start}.tl,.tr{display:block}.tl>*,.tr>*{order:0}.tr>*:first-child{margin-top:14px}}
+#toast.act{pointer-events:auto}.tbtn{margin-left:10px;padding:3px 10px;font-size:13px;background:transparent;color:var(--bg);border-color:var(--bg)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}

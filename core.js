@@ -35,6 +35,7 @@ function migrate() {
   for (const k of ['plan', 'log', 'workouts', 'adjust', 'shopChecked', 'menus']) S[k] = S[k] || {};
   S.chat = S.chat || []; S.ingredients = S.ingredients || []; S.recipes = S.recipes || [];
   S.profile = Object.assign({}, d.profile, S.profile || {});
+  if (!S.lastBackup) S.lastBackup = today();
   if (S.profileSet === undefined && (S.setupDone || S.rev > 0)) S.profileSet = true;   // existing users are not asked again
   S.recipes.forEach(r => { r.tags = r.tags || []; r.how = r.how || ''; r.prep = r.prep || ''; });
   S.ingredients.forEach(i => { if (i.proc == null) i.proc = 0; if (i.nl == null) i.nl = ''; });
@@ -75,7 +76,10 @@ async function doSave() {
   saving = false;
   if (pending) { pending = false; doSave(); }
 }
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 3600); }
+function toast(msg, undo) { const t = $('#toast'); t.innerHTML = esc(msg) + (undo ? ' <button class="tbtn" data-act="undo">Cofnij</button>' : ''); t.classList.add('on'); t.classList.toggle('act', !!undo); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), undo ? 7000 : 3600); }
+/* Undo: snapshot before a destructive change, offer "Cofnij" in the toast */
+const snapshot = () => JSON.stringify(S);
+function restore(snap) { const rev = S.rev; S = JSON.parse(snap); S.rev = rev; migrate(); }
 
 /* ============ nutrition model ============ */
 const SL = () => S.profile.snack ? ['breakfast', 'snack', 'lunch', 'dinner'] : ['breakfast', 'lunch', 'dinner'];
