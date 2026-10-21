@@ -110,3 +110,6 @@ button,a,label,input,select,summary{touch-action:manipulation}
 #toast.act{pointer-events:auto}.tbtn{margin-left:10px;padding:3px 10px;font-size:13px;background:transparent;color:var(--bg);border-color:var(--bg)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.sl{width:98px;letter-spacing:.06em;font-size:10.5px;overflow-wrap:anywhere}
+@media(max-width:420px){.sl{width:84px;font-size:10px;letter-spacing:.04em}}
+.shop .r{min-width:62px}.shop .b{font-variant-numeric:tabular-nums}

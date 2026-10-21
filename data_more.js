@@ -32,6 +32,10 @@ function seedExtras(A) {
     ['cashew', 'Orzechy nerkowca', 'Cashewnoten', 'g', 553, 18, 30, 44, A[4], 200, 3.5, 0],
     ['tahin', 'Pasta sezamowa (tahini)', 'Tahin', 'g', 595, 17, 21, 54, A[4], 250, 3.5, 1],
     ['knoflook', 'Czosnek', 'Knoflook', 'g', 149, 6.4, 33, 0.5, A[0], 50, 0.8, 0],
+    // ready-made shop food for the university lunch (macros approximate – check the label)
+    ['kup_kanapka', 'Gotowa kanapka z kurczakiem (sklep)', 'Broodje kip (kant-en-klaar)', 'pcs', 350, 22, 36, 12, 'Gotowe', 1, 3.5, 1],
+    ['kup_wrap', 'Gotowy wrap z kurczakiem (sklep)', 'Wrap kip (kant-en-klaar)', 'pcs', 420, 26, 40, 17, 'Gotowe', 1, 3.8, 1],
+    ['kup_salade', 'Gotowa sałatka z tuńczykiem (kubek, sklep)', 'Tonijnsalade (bakje)', 'pcs', 380, 24, 30, 18, 'Gotowe', 1, 3.4, 1],
   ];
   // name, slots, tags, how, prep, items
   const recipes = [
@@ -84,6 +88,14 @@ function seedExtras(A) {
     ['Chleb żytni z masłem orzechowym', ['snack'], ['szybkie', 'do zabrania'], '', '', [['roggebrood', 60], ['pinda', 25], ['banaan', 0.5]]],
     ['Edamame', ['snack'], ['do zabrania', 'wegetariańskie'], 'Rozmrożone edamame, szczypta soli.', '', [['edamame', 150]]],
     ['Skyr z kiwi', ['snack'], ['bez gotowania'], '', '', [['skyr', 200], ['kiwi', 2]]],
+    // ---- na uczelnię: szybkie (robisz razem ze śniadaniem) albo kupne
+    ['Kanapki z tuńczykiem i ogórkiem', ['lunch'], ['na uczelnię', 'szybkie', 'bez gotowania'], 'Smaruj chleb jogurtem, dodaj tuńczyka i ogórka.', '', [['brood', 120], ['tonijn', 110], ['komkommer', 80], ['griek', 40], ['appel', 1]]],
+    ['Kanapki z serem i jajkiem', ['lunch'], ['na uczelnię', 'szybkie'], 'Jajka ugotuj na twardo (najlepiej kilka na zapas).', 'Ugotuj jajka na twardo na kilka dni', [['brood', 120], ['eieren', 2], ['kaas', 40], ['tomaat', 80], ['banaan', 1]]],
+    ['Box: skyr, orzechy i owoce', ['lunch'], ['na uczelnię', 'bez gotowania', 'szybkie'], 'Wszystko do pudełka – 2 minuty.', '', [['skyr', 300], ['amandel', 30], ['banaan', 1], ['haver', 40]]],
+    ['Wrap z jajkiem i serkiem wiejskim', ['lunch'], ['na uczelnię', 'szybkie'], 'Jajka na twardo, wrap, serek, rukola – zawiń w folię.', 'Ugotuj jajka na twardo na kilka dni', [['wrap', 120], ['eieren', 3], ['hutten', 100], ['rucola', 30], ['tomaat', 80]]],
+    ['Kupne: 2 kanapki z kurczakiem, skyr i banan', ['lunch'], ['na uczelnię', 'kupne', 'bez gotowania'], 'Kup gotowe kanapki (np. w sklepie przy uczelni, Albert Heijn, Jumbo). Wartości są przybliżone – sprawdź etykietę i popraw w Jedzenie.', '', [['kup_kanapka', 2], ['skyr', 200], ['banaan', 1]]],
+    ['Kupne: wrap z kurczakiem, skyr i jabłko', ['lunch'], ['na uczelnię', 'kupne', 'bez gotowania'], 'Kup gotowy wrap. Wartości przybliżone – sprawdź etykietę.', '', [['kup_wrap', 1], ['skyr', 200], ['appel', 1]]],
+    ['Kupne: sałatka z tuńczykiem, chleb i twaróg', ['lunch'], ['na uczelnię', 'kupne', 'bez gotowania'], 'Kup gotową sałatkę w kubku; chleb i twaróg zabierz z domu. Wartości przybliżone.', '', [['kup_salade', 1], ['brood', 100], ['kwark', 200]]],
   ];
   return { rows, recipes };
 }

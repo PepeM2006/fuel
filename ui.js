@@ -58,7 +58,7 @@ function viewToday() {
     if (live(it)) {
       const r = rec(it.rid), m = itemMacros(it);
       L += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
-        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)} ${it.serv !== 1 ? `<span class="tag">×${it.serv}</span>` : ''}</div><div class="mut xs">${macroLine(m)}</div></div></div>${it.eaten ? '' : optsHtml(d, s)}`;
+        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div></div></div>${it.eaten ? '' : optsHtml(d, s)}`;
     } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
   for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
@@ -73,9 +73,12 @@ function viewPlan() {
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Nie wybrałeś menu – generator użyje wszystkich przepisów. Wybierz dania, a lista zakupów powstanie z nich.'}</div>
     <div class="grid2" style="margin-top:10px">
       <div><label>Gotuję raz na</label><select data-bind="profile.prepDays">${[1, 2, 3, 4].map(n => `<option value="${n}" ${S.profile.prepDays === n ? 'selected' : ''}>${n === 1 ? 'codziennie' : n + ' dni'}</option>`).join('')}</select></div>
-      <div><label>Przekąska</label><select data-bind="profile.snack"><option value="false" ${!S.profile.snack ? 'selected' : ''}>nie (3 posiłki)</option><option value="true" ${S.profile.snack ? 'selected' : ''}>tak (4 posiłki)</option></select></div>
+      <div><label>Przekąska</label><select data-bind="profile.snack"><option value="false" ${!S.profile.snack ? 'selected' : ''}>nie – śniadanie, uczelnia, obiadokolacja</option><option value="true" ${S.profile.snack ? 'selected' : ''}>tak – dodatkowa przekąska</option></select></div>
       <div><label>Tryb czysty</label><select data-bind="profile.clean"><option value="true" ${S.profile.clean ? 'selected' : ''}>bez przetworzonych</option><option value="false" ${!S.profile.clean ? 'selected' : ''}>dowolne</option></select></div>
-      <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>`;
+      <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div><label>Mięso i ryby na obiadokolację</label><select data-bind="profile.meatPref">${[['less', 'rzadziej'], ['normal', 'normalnie'], ['more', 'często']].map(([v, l]) => `<option value="${v}" ${(S.profile.meatPref || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div><label>Zakupy w tygodniu</label><select data-bind="profile.shopTrips"><option value="1" ${(S.profile.shopTrips | 0) < 2 ? 'selected' : ''}>raz (świeże mięso tylko na pierwsze dni)</option><option value="2" ${(S.profile.shopTrips | 0) >= 2 ? 'selected' : ''}>dwa razy (świeże przez cały tydzień)</option></select></div>
+      ${(S.profile.shopTrips | 0) >= 2 ? `<div><label>Drugie zakupy</label><select data-bind="profile.trip2Day">${[2, 3, 4].map(n => `<option value="${n}" ${(S.profile.trip2Day ?? 3) === n ? 'selected' : ''}>${DAYFULL[n]}</option>`).join('')}</select></div>` : ''}</div></div>`;
   const priced = [];
   h += `<div class="daygrid">`;
   for (let i = 0; i < 7; i++) {
@@ -88,18 +91,20 @@ function viewPlan() {
       ${any ? `<div class="xs mut">${r0(dm.kcal)} / ${r0(t.kcal)} kcal · białko ${r0(dm.p)}/${r0(t.p)} g</div>${bar(dm.kcal, t.kcal, 'var(--acc)')}` : '<div class="xs mut">Pusto</div>'}`;
     for (const s of SL()) {
       const it = dp[s], r = live(it);
-      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.serv !== 1 ? `<span class="tag">×${it.serv}</span>` : ''} ${it.locked ? '<span class="tag">przypięte</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div></div>`;
+      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div></div>`;
     }
     h += `</div>`;
   }
   h += `</div>`;
-  // cook sessions
+  // cook sessions: whole portions, exact totals
   const ses = cookSessions(wk);
   if (ses.length) {
-    h += `<div class="card"><h2>Gotowanie – raz na kilka dni</h2>`;
+    h += `<div class="card"><h2>Gotowanie i przygotowanie</h2>`;
     for (const x of ses) {
-      const r = rec(x.rid), a = x.days[0], b = x.days[x.days.length - 1];
-      h += `<div class="meal" data-act="viewRec" data-id="${r.id}" data-serv="${r1(x.serv / x.days.length)}"><div class="sl">${SLOT_PL[x.slot]}</div><div class="grow"><div class="b">${esc(r.name)}</div><div class="mut xs">${a === b ? DAYN[wdIdx(a)] : DAYN[wdIdx(a)] + '–' + DAYN[wdIdx(b)]} · ugotuj ~${r1(x.serv)} porcji naraz${r.prep ? ' · ' + esc(r.prep) : ''}</div></div></div>`;
+      const r = rec(x.rid), a = x.days[0], b = x.days[x.days.length - 1], days = a === b ? DAYN[wdIdx(a)] : DAYN[wdIdx(a)] + '–' + DAYN[wdIdx(b)];
+      h += `<div class="meal" style="align-items:flex-start" data-act="viewRec" data-id="${r.id}" data-serv="${x.items[0].serv}"><div class="sl">${SLOT_PL[x.slot]}</div><div class="grow"><div class="b">${esc(r.name)}</div>
+        <div class="xs"><b>${x.portions} ${x.portions === 1 ? 'porcja' : x.portions < 5 ? 'porcje' : 'porcji'}</b> na ${days}${r.prep ? ' · ' + esc(r.prep) : ''}</div>
+        <div class="mut xs">${x.totals.map(t => `${esc(t.i.name.toLowerCase())} ${fmtAmt(cookQty(t.a, t.i.unit), t.i.unit)}`).join(' · ')}</div></div></div>`;
     }
     h += `</div>`;
   }
@@ -110,40 +115,89 @@ function viewPlan() {
     if (top) {
       const cur = rec(top.it.rid), curM = itemMacros(top.it);
       const alt = S.recipes.filter(r => r.id !== cur.id && r.slots.includes(top.s) && (!S.profile.clean || isClean(r))).map(r => { const m = recipeMacros(r), serv = clampServ(curM.kcal / m.kcal); return { r, serv, cost: recipeCost(r) * serv }; }).filter(a => a.cost < top.cost - .3).sort((a, b) => a.cost - b.cost)[0];
-      if (alt) h += `<div class="warnbox">Ponad budżet. Zamień ${DAYN[wdIdx(top.d)]} (${SLOT_PL[top.s].toLowerCase()}) <b>${esc(cur.name)}</b> → <b>${esc(alt.r.name)}</b> ×${alt.serv} i zaoszczędź ~${money(top.cost - alt.cost)} <button class="sm" data-act="applySwap" data-d="${top.d}" data-s="${top.s}" data-rid="${alt.r.id}" data-serv="${alt.serv}">Zamień</button></div>`;
+      if (alt) h += `<div class="warnbox">Ponad budżet. Zamień ${DAYN[wdIdx(top.d)]} (${SLOT_PL[top.s].toLowerCase()}) <b>${esc(cur.name)}</b> → <b>${esc(alt.r.name)}</b> i zaoszczędź ~${money(top.cost - alt.cost)} <button class="sm" data-act="applySwap" data-d="${top.d}" data-s="${top.s}" data-rid="${alt.r.id}" data-serv="${alt.serv}">Zamień</button></div>`;
     }
   }
   return h + `</div>`;
 }
 
+function shopRow(r, chk) {
+  const key = r.i.id + '|' + r.trip, span = r.last - r.first + 1;
+  const parts = [r.i.nl ? `<b>${esc(r.i.nl)}</b>` : '', r.packs ? `opakowania: ${r.packs} × ${fmtAmt(r.i.pack, r.i.unit)}${r.qty - r.buy > r.i.pack * .08 ? ` (zostanie ${fmtAmt(r.qty - r.buy, r.i.unit)})` : ''}` : '', r.have ? `masz w domu ${fmtAmt(r.have, r.i.unit)}` : '', r.freeze ? `<span class="tag warn">użyjesz przez ${span} dni – zamroź część</span>` : ''].filter(Boolean);
+  return `<div class="shop ${chk[key] ? 'chk' : ''}"><input type="checkbox" data-act="shopChk" data-id="${key}" ${chk[key] ? 'checked' : ''}>
+    <div class="grow nm"><div class="b">${esc(r.i.name)}</div><div class="mut xs">${parts.join(' · ')}</div></div>
+    <div class="r"><div class="b">${fmtAmt(r.exact, r.i.unit)}</div><div class="xs mut">${r.cost ? money(r.cost) : ''}</div></div></div>`;
+}
 function viewShop() {
-  const wk = UI.week, rows = shopList(wk), chk = S.shopChecked[wk] || (S.shopChecked[wk] = {});
+  const wk = UI.week, nT = (S.profile.shopTrips | 0) >= 2 ? 2 : 1, chk = S.shopChecked[wk] || (S.shopChecked[wk] = {});
   let h = `<div class="top"><div><div class="eyebrow">${esc(S.profile.store)} · tydzień od ${esc(fmtDay(wk))}</div><h1>Lista zakupów</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
-  const buy = shopSorted(rows), have = rows.filter(r => r.buy <= .01);
-  if (!buy.length && !have.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
-  const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id]).length;
-  h += `<div class="row wrap" style="margin-bottom:8px"><span class="pill">${buy.length} pozycji · ~${money(total)}</span><span class="pill soft">${done}/${buy.length} w koszyku</span><select data-bind="profile.store" style="width:auto">${STORES.map(s => `<option ${S.profile.store === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+  const all = shopList(wk), buy = shopSorted(all), covered = all.filter(r => r.buy <= .01);
+  if (!all.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
+  const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id + '|' + r.trip]).length;
+  h += `<div class="row wrap" style="margin-bottom:8px"><span class="pill">${buy.length} pozycji · ~${money(total)}</span><span class="pill soft">${done}/${buy.length} w koszyku</span>${covered.length ? `<span class="pill soft">${covered.length} masz w domu</span>` : ''}<select data-bind="profile.store" style="width:auto">${STORES.map(s => `<option ${S.profile.store === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
     <div class="row wrap"><button class="pri" data-act="toReminders">Do Przypomnień</button><button data-act="copyList">Kopiuj / udostępnij</button></div>
-    <div class="row wrap" style="margin-top:8px"><button class="sm" data-act="checkAll">Zaznacz wszystko</button><button class="sm" data-act="boughtToPantry">Dodaj zaznaczone do spiżarni</button></div><div class="card" style="margin-top:12px;padding-top:4px">`;
-  let last = null;
-  for (const r of buy) {
-    if (r.i.aisle !== last) { h += `<div class="aisle">${esc(r.i.aisle || 'Inne')}</div>`; last = r.i.aisle; }
-    h += `<div class="shop ${chk[r.i.id] ? 'chk' : ''}"><input type="checkbox" data-act="shopChk" data-id="${r.i.id}" ${chk[r.i.id] ? 'checked' : ''}><div class="grow nm"><div class="b">${esc(r.i.name)}</div><div class="mut xs">${r.i.nl ? `<b>${esc(r.i.nl)}</b> · ` : ''}${r.packs ? `${r.packs} × ${fmtAmt(r.i.pack, r.i.unit)}` : fmtAmt(r.qty, r.i.unit)} · potrzeba ${fmtAmt(r.need, r.i.unit)}${r.have ? `, masz ${fmtAmt(r.have, r.i.unit)}` : ''}${r.packs && r.qty - r.buy > r.i.pack * .08 ? ` · zostanie ${fmtAmt(r.qty - r.buy, r.i.unit)}` : ''}</div></div><span class="sm mut">${r.cost ? money(r.cost) : ''}</span></div>`;
+    <div class="row wrap" style="margin-top:8px"><button class="sm" data-act="checkAll">Zaznacz wszystko</button><button class="sm" data-act="boughtToPantry">Dodaj zaznaczone do lodówki</button><button class="sm" data-act="ftabFridge">Co mam w domu</button></div>
+    <div class="mut xs" style="margin-top:8px">Duża liczba po prawej to dokładnie tyle, ile potrzebujesz. Opakowania to propozycja, jak to kupić.</div>`;
+  if (covered.length) h += `<div class="card" style="margin-top:12px;padding-top:4px"><div class="aisle">Masz w domu – nic nie kupujesz</div>${covered.map(r => `<div class="shop chk"><input type="checkbox" checked disabled><div class="grow nm"><div class="b">${esc(r.i.name)}</div><div class="mut xs">potrzeba ${fmtAmt(niceQty(r.need, r.i.unit), r.i.unit)}</div></div><div class="r xs mut">z lodówki</div></div>`).join('')}</div>`;
+  for (let tr = 0; tr < nT; tr++) {
+    const rows = shopSorted(all.filter(r => r.trip === tr));
+    if (nT === 2) h += `<h2 style="margin:18px 0 0">${tripLabel(tr)} · ${rows.length} pozycji · ~${money(rows.reduce((a, r) => a + r.cost, 0))}</h2>`;
+    if (!rows.length) { if (nT === 2) h += '<div class="mut sm">Nic do kupienia.</div>'; continue; }
+    h += `<div class="card" style="margin-top:8px;padding-top:4px">`;
+    let last = null;
+    for (const r of rows) { if (r.i.aisle !== last) { h += `<div class="aisle">${esc(r.i.aisle || 'Inne')}</div>`; last = r.i.aisle; } h += shopRow(r, chk); }
+    h += `</div>`;
   }
-  h += `</div>`;
-  if (have.length) h += `<div class="mut sm">Pokryte ze spiżarni: ${have.map(r => esc(r.i.name)).join(', ')}</div>`;
   return h;
+}
+
+/* ---- fridge / pantry ---- */
+function viewFridge() {
+  const items = pantryItems().sort((a, b) => ((daysLeft(a) ?? 999) - (daysLeft(b) ?? 999)) || a.name.localeCompare(b.name, 'pl')), ideas = pantryIdeas(8);
+  let h = `<div class="card"><div class="row sp"><h2 style="margin:0">Co mam w domu</h2><button class="pri sm" data-act="fridgeAdd">+ Dodaj</button></div>`;
+  h += items.length ? items.map(i => { const dl = daysLeft(i); return `<div class="meal" data-act="fridgeEdit" data-id="${i.id}"><div class="grow"><div class="b">${esc(i.name)}</div><div class="mut xs">${i.pantryExp ? `ważne do ${esc(fmtDay(i.pantryExp))}${dl != null && dl <= 2 ? ' – <b style="color:var(--clay)">zużyj szybko</b>' : ''}` : 'bez daty ważności'}</div></div><div class="b">${fmtAmt(i.pantry, i.unit)}</div></div>`; }).join('')
+    : `<div class="mut sm" style="margin-top:10px">Dodaj to, co masz w lodówce i szafkach. Planer zużyje to najpierw, lista zakupów pokaże te produkty jako odhaczone, a poniżej dostaniesz pomysły, co z tego zrobić.</div>`;
+  h += `</div>`;
+  if (items.length) {
+    h += `<div class="card"><h2>Co z tego zrobić</h2>`;
+    h += ideas.length ? ideas.map(x => `<div class="meal" style="align-items:flex-start"><div class="grow nm" data-act="viewRec" data-id="${x.r.id}" data-serv="1"><div class="b">${esc(x.r.name)}</div><div class="mut xs">masz ${r0(x.cover * 100)}% składników${x.missing.length ? ' · brakuje: ' + esc(x.missing.slice(0, 3).join(', ').toLowerCase()) + (x.missing.length > 3 ? '…' : '') : ' – wszystko jest!'}${x.urgent ? ' · <b style="color:var(--clay)">szybko się zepsuje</b>' : ''}</div></div><button class="sm" data-act="ideaPlan" data-id="${x.r.id}">Do planu</button></div>`).join('') : '<div class="mut sm">Na razie żaden przepis nie pasuje w co najmniej 30% – dodaj więcej produktów.</div>';
+    h += `</div>`;
+  }
+  return h;
+}
+function fridgeAdd() {
+  const list = S.ingredients.slice().sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  const exp = () => { const e = val('fa_e'); return e || ''; };
+  modal('Dodaj do domu', `<label>Produkt</label><select id="fa_i">${list.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('')}</select>
+    <div class="grid2"><div><label>Ile masz</label><input id="fa_a" inputmode="decimal" placeholder="np. 400"></div><div><label>Ważne do (opcjonalnie)</label><input id="fa_e" type="date"></div></div>
+    <div class="mut xs" style="margin-top:8px">Ilość w jednostce produktu (g, ml lub szt.). Nie ma produktu? Dodaj go w „Składniki".</div><div id="fa_log" class="sm" style="margin-top:8px"></div>`,
+    [{ label: 'Dodaj i kolejny', fn: () => { const i = ing(val('fa_i')), a = num(val('fa_a')); if (!i || a <= 0) return toast('Wpisz ilość'); i.pantry = (i.pantry || 0) + a; if (exp()) i.pantryExp = exp(); save(); $('#fa_log').innerHTML += `✓ ${esc(i.name)} ${fmtAmt(a, i.unit)}<br>`; $('#fa_a').value = ''; $('#fa_a').focus(); } },
+    { label: 'Gotowe', cls: 'pri', fn: () => { const i = ing(val('fa_i')), a = num(val('fa_a')); if (i && a > 0) { i.pantry = (i.pantry || 0) + a; if (exp()) i.pantryExp = exp(); } save(); closeModal(); render(); } }]);
+}
+function fridgeEdit(id) {
+  const i = ing(id); if (!i) return;
+  modal(i.name, `<div class="grid2"><div><label>Ile masz (${i.unit})</label><input id="fe_a" inputmode="decimal" value="${i.pantry || 0}"></div><div><label>Ważne do</label><input id="fe_e" type="date" value="${i.pantryExp || ''}"></div></div>`,
+    [{ label: 'Nie mam już', cls: 'danger', fn: () => { i.pantry = 0; delete i.pantryExp; save(); closeModal(); render(); } },
+    { label: 'Zapisz', cls: 'pri', fn: () => { i.pantry = Math.max(0, num(val('fe_a'))); if (val('fe_e')) i.pantryExp = val('fe_e'); else delete i.pantryExp; save(); closeModal(); render(); } }]);
+}
+function ideaPlan(rid) {
+  const r = rec(rid); if (!r) return;
+  const days = Array.from({ length: 7 }, (_, k) => addDays(today(), k)), slots = r.slots.filter(s => SL().includes(s));
+  modal(`Do planu: ${r.name}`, `<div class="grid2"><div><label>Dzień</label><select id="ip_d">${days.map(d => `<option value="${d}">${esc(fmtDay(d))}</option>`).join('')}</select></div><div><label>Posiłek</label><select id="ip_s">${slots.map(s => `<option value="${s}">${SLOT_PL[s]}</option>`).join('')}</select></div></div>
+    <div class="mut xs" style="margin-top:8px">Wielkość porcji dobiorę do Twojego celu kalorii.</div>`,
+    [{ label: 'Dodaj do planu', cls: 'pri', fn: () => { const d = val('ip_d'), s = val('ip_s'), m = recipeMacros(r); if (!slots.length) return toast('Ten przepis nie pasuje do żadnego z Twoich posiłków'); closeModal(); UI.week = weekStart(d); withUndo(() => { swapMeal(d, s, r.id, clampServ(targets(d).kcal * shareOf(s) / m.kcal)); return `Dodano: ${SLOT_PL[s]} ${fmtDay(d)}`; }); } }]);
 }
 
 function viewFoods() {
   const q = norm(UI.q);
-  let h = `<div class="top"><div><div class="eyebrow">Twoja baza</div><h1>Jedzenie</h1></div><button class="pri" data-act="${UI.foodsTab === 'ing' ? 'editIng' : 'editRec'}">+ Nowy</button></div>
-    <div class="seg" style="margin-bottom:10px"><button class="${UI.foodsTab === 'rec' ? 'sel' : ''}" data-act="ftab" data-t="rec">Przepisy (${S.recipes.length})</button><button class="${UI.foodsTab === 'ing' ? 'sel' : ''}" data-act="ftab" data-t="ing">Składniki (${S.ingredients.length})</button></div>
-    <input id="q" placeholder="Szukaj…" value="${esc(UI.q)}" data-bind-q>`;
+  let h = `<div class="top"><div><div class="eyebrow">Twoja baza</div><h1>Jedzenie</h1></div><button class="pri" data-act="${UI.foodsTab === 'ing' ? 'editIng' : UI.foodsTab === 'fridge' ? 'fridgeAdd' : 'editRec'}">+ ${UI.foodsTab === 'fridge' ? 'Dodaj' : 'Nowy'}</button></div>
+    <div class="seg" style="margin-bottom:10px"><button class="${UI.foodsTab === 'rec' ? 'sel' : ''}" data-act="ftab" data-t="rec">Przepisy (${S.recipes.length})</button><button class="${UI.foodsTab === 'ing' ? 'sel' : ''}" data-act="ftab" data-t="ing">Składniki (${S.ingredients.length})</button><button class="${UI.foodsTab === 'fridge' ? 'sel' : ''}" data-act="ftab" data-t="fridge">W domu (${pantryItems().length})</button></div>
+    ${UI.foodsTab === 'fridge' ? '' : `<input id="q" placeholder="Szukaj…" value="${esc(UI.q)}" data-bind-q>`}`;
+  if (UI.foodsTab === 'fridge') return h + viewFridge();
   if (UI.foodsTab === 'rec') {
-    h += `<div class="chips" style="margin:10px 0">${[['', 'Wszystkie'], ['breakfast', 'Śniadania'], ['main', 'Lunch i kolacja'], ['snack', 'Przekąski']].map(([k, l]) => `<button class="sm ${UI.slotFilter === k ? 'sel' : ''}" data-act="sfilter" data-k="${k}">${l}</button>`).join('')}</div><div class="cards">`;
-    const f = r => (!UI.slotFilter || (UI.slotFilter === 'main' ? (r.slots.includes('lunch') || r.slots.includes('dinner')) : r.slots.includes(UI.slotFilter))) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
-    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="1"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="mut sm">${money(recipeCost(r))}</div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${tagHtml(r)} ${cleanBadge(r)}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
+    h += `<div class="chips" style="margin:10px 0">${[['', 'Wszystkie'], ['breakfast', 'Śniadania'], ['lunch', 'Na uczelnię'], ['dinner', 'Obiadokolacje'], ['snack', 'Przekąski']].map(([k, l]) => `<button class="sm ${UI.slotFilter === k ? 'sel' : ''}" data-act="sfilter" data-k="${k}">${l}</button>`).join('')}</div><div class="cards">`;
+    const f = r => (!UI.slotFilter || r.slots.includes(UI.slotFilter)) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
+    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="1"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="mut sm">${money(recipeCost(r))}</div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
     h += `</div>`;
   } else {
     h += `<div class="card" style="margin-top:10px">`;
@@ -154,20 +208,34 @@ function viewFoods() {
 }
 
 const mdLite = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^[-*] /gm, '• ').replace(/\n/g, '<br>');
+function aiConnectCard() {
+  const cfg = UI.cfg || {}, cli = cfg.cli || {};
+  if (cfg.local) {
+    let pc = ''; try { pc = localStorage.getItem('fuel-pc') || ''; } catch (e) { }
+    return `<div class="card"><h3>Claude na telefonie</h3>
+      <p class="sm mut" style="margin:8px 0 12px">Ta wersja działa samodzielnie na telefonie, więc sama nie może użyć Twojego konta Claude. Masz dwie drogi:</p>
+      <div class="sm"><b>1. Przez komputer – bez klucza, w ramach Twojej subskrypcji.</b> Otwórz Fuel z komputera: adres znajdziesz na komputerze w „Ja → Telefon" (np. http://192.168.1.20:8780). Działa na tym samym Wi-Fi, a poza domem po zainstalowaniu darmowego Tailscale na komputerze i telefonie.</div>
+      <label>Adres Fuel z komputera</label><input id="pc_url" value="${esc(pc)}" placeholder="http://192.168.1.20:8780"><button class="pri sm" style="margin-top:8px" data-act="openPc">Otwórz Fuel z komputera</button>
+      <div class="sm" style="margin-top:16px"><b>2. Własny klucz API</b> (płatny osobno, zwykle grosze za rozmowę; zapisuje się tylko w tej przeglądarce):</div>
+      <label>Klucz API z console.anthropic.com</label><input id="ai_key" type="password" placeholder="sk-ant-…" autocomplete="off"><button class="sm" style="margin-top:8px" data-act="aiSaveKey">Zapisz klucz</button></div>`;
+  }
+  return `<div class="card"><h3>Połącz z kontem Claude</h3>
+    <p class="sm mut" style="margin:8px 0 12px">Nie potrzebujesz klucza API. Fuel używa Twojego konta Claude przez Claude Code zainstalowany na tym komputerze – w ramach subskrypcji.</p>
+    ${cli.found ? `<ol class="sm" style="margin:0 0 12px;padding-left:20px"><li>Kliknij „Zaloguj się do Claude" – na komputerze otworzy się okno logowania.</li><li>Zaloguj się w przeglądarce, wróć tutaj i kliknij „Sprawdź połączenie".</li></ol>
+    <div class="row wrap"><button class="pri" data-act="aiLogin">Zaloguj się do Claude</button><button data-act="aiRecheck">Sprawdź połączenie</button></div>`
+      : `<div class="warnbox" style="margin:0">Serwer Fuel nie widzi Claude Code na tym komputerze. Zainstaluj aplikację Claude (zawiera Claude Code), zaloguj się w niej, potem kliknij poniżej.</div><button style="margin-top:10px" data-act="aiRecheck">Sprawdź ponownie</button>`}
+    <details style="margin-top:16px"><summary class="sm mut" style="cursor:pointer">Albo użyj klucza API (płatny osobno, opcjonalnie)</summary>
+    <label>Klucz API z console.anthropic.com</label><input id="ai_key" type="password" placeholder="sk-ant-…" autocomplete="off"><button class="sm" style="margin-top:8px" data-act="aiSaveKey">Zapisz klucz</button></details></div>`;
+}
 function viewAI() {
   const cfg = UI.cfg || {}, mode = cfg.mode || 'none';
-  let h = `<div class="top"><div><div class="eyebrow">Claude</div><h1>Asystent</h1></div>${S.chat.length ? '<button class="sm" data-act="aiClear">Wyczyść czat</button>' : ''}</div>`;
-  if (mode === 'none' && cfg.local) return h + `<div class="card"><h3>Asystent na telefonie</h3><p class="sm mut" style="margin:8px 0 12px">Planer, zakupy, opcje posiłków i przepisy działają bez niego. Sam asystent na telefonie (bez komputera) potrzebuje klucza API z console.anthropic.com – jest płatny osobno (zwykle grosze za rozmowę) i zapisuje się tylko w tej przeglądarce. Z kontem Claude asystent działa tylko na komputerze.</p><label>Klucz API</label><input id="ai_key" type="password" placeholder="sk-ant-…" autocomplete="off"><button class="sm" style="margin-top:8px" data-act="aiSaveKey">Zapisz klucz</button></div>`;
-  if (mode === 'none') {
-    const cli = cfg.cli || {};
-    return h + `<div class="card"><h3>Połącz z kontem Claude</h3>
-      <p class="sm mut" style="margin:8px 0 12px">Nie potrzebujesz klucza API. Fuel może korzystać z Twojego konta Claude (tego samego, co w aplikacji Claude), przez zainstalowany na komputerze Claude Code – w ramach Twojej subskrypcji.</p>
-      ${cli.found ? `<ol class="sm" style="margin:0 0 12px;padding-left:20px"><li>Kliknij „Zaloguj się do Claude" – na komputerze otworzy się okno logowania.</li><li>Zaloguj się w przeglądarce, wróć tutaj i kliknij „Sprawdź połączenie".</li></ol>
-      <div class="row wrap"><button class="pri" data-act="aiLogin">Zaloguj się do Claude</button><button data-act="aiRecheck">Sprawdź połączenie</button></div>`
-        : `<div class="warnbox" style="margin:0">Nie znalazłem Claude Code na tym komputerze. Zainstaluj aplikację Claude na komputerze (zawiera Claude Code) i zaloguj się w niej, potem kliknij poniżej.</div><button style="margin-top:10px" data-act="aiRecheck">Sprawdź ponownie</button>`}
-      <details style="margin-top:16px"><summary class="sm mut" style="cursor:pointer">Albo użyj klucza API (płatny osobno, opcjonalnie)</summary>
-      <label>Klucz API z console.anthropic.com</label><input id="ai_key" type="password" placeholder="sk-ant-…" autocomplete="off"><button class="sm" style="margin-top:8px" data-act="aiSaveKey">Zapisz klucz</button></details></div>`;
+  let h = `<div class="top"><div><div class="eyebrow">Claude</div><h1>Asystent</h1></div><div class="row">${S.chat.length ? '<button class="sm" data-act="aiClear">Wyczyść czat</button>' : ''}<button class="sm" data-act="aiTest">Test połączenia</button></div></div>`;
+  if (!UI.cfgLoaded || mode === 'checking') {   // never claim "not found" before we actually know
+    if (!viewAI.t) viewAI.t = setTimeout(async () => { viewAI.t = null; await loadCfg(); if (UI.view === 'ai') render(); }, 1800);
+    return h + `<div class="card"><div class="row"><div class="typing" style="display:inline-block"><span></span><span></span><span></span></div><span class="sm mut">Sprawdzam połączenie z Claude…</span></div></div>`;
   }
+  if (cfg.error) return h + `<div class="card"><h3>Brak połączenia z serwerem Fuel</h3><p class="sm mut">Nie mogę zapytać serwera o Claude (${esc(cfg.error)}). Upewnij się, że Fuel działa na komputerze (start.bat) i że telefon jest w tej samej sieci.</p><button class="pri sm" data-act="aiRecheck">Spróbuj ponownie</button></div>`;
+  if (mode === 'none') return h + aiConnectCard();
   const sugg = ['Zaplanuj mi ten tydzień: 3 różne śniadania-shake i 4 dania na lunch/kolację, tanio', 'Dodaj przepis na szybkie jajka z warzywami do zabrania na uczelnię', 'Zjadłem dziś pizzę, ok. 1100 kcal zamiast kolacji', 'Dziś był Push, 18 serii – zapisz trening', 'Czego brakuje mi do celu białka w tym tygodniu?'];
   h += `<div class="card chat"><div id="chatlog">${S.chat.length ? S.chat.map(m => `<div class="msg ${m.role}">${mdLite(m.text)}</div>`).join('') : `<div class="mut sm">Zapytaj o cokolwiek albo poproś o zmianę w planie, przepisach, zakupach i treningach. Asystent widzi Twoje dane i może je zmieniać.${mode === 'cli' ? ' Połączono z Twoim kontem Claude – odpowiedź trwa zwykle 10–25 sekund.' : ''}</div><div class="chips" style="margin-top:12px">${sugg.map((s, i) => `<button class="sm" data-act="aiSuggest" data-i="${i}">${esc(s)}</button>`).join('')}</div>`}${UI.aiBusy ? `<div class="msg assistant typing"><span></span><span></span><span></span></div>${mode === 'cli' ? '<div class="xs mut">Claude myśli – to potrwa kilkanaście sekund…</div>' : ''}` : ''}</div>
     <div class="row" style="align-items:flex-end;margin-top:12px"><textarea id="aiin" rows="2" placeholder="Napisz do asystenta…" style="resize:none"></textarea><button class="pri" data-act="aiSend" ${UI.aiBusy ? 'disabled' : ''}>Wyślij</button></div></div>`;
@@ -218,7 +286,7 @@ function viewMe() {
   if (UI.local) h += `<div class="card"><h2>Ta aplikacja</h2><div class="sm">Działa samodzielnie na tym urządzeniu, także bez internetu i bez komputera. Twoje dane są tylko tutaj – pobieraj kopię (na dole), żeby ich nie stracić.</div><div class="xs mut" style="margin-top:8px">Chcesz przenieść dane z komputera? Na komputerze: Ja → „Pobierz kopię”, wyślij plik na telefon i tu użyj „Przywróć kopię”.</div></div>`;
   else {
   h += `<div class="card"><h2>Telefon</h2><div class="row" style="align-items:flex-start;gap:16px"><div class="qr">${qr}</div><div class="grow sm">${phoneUrl ? `Zeskanuj kod aparatem telefonu albo wpisz w przeglądarce:<div class="code">${esc(phoneUrl)}</div>` : 'Nie wykryłem adresu komputera w sieci.'}
-    <ol class="xs mut" style="padding-left:18px;margin:6px 0 0"><li>Telefon i komputer w tej samej sieci Wi-Fi, a Fuel uruchomiony (start.bat).</li><li>Jeśli się nie otwiera: uruchom <b>allow-phone.bat</b> (jednorazowo) i ustaw sieć Wi-Fi jako „prywatną".</li><li>W przeglądarce telefonu: „Dodaj do ekranu głównego" – wtedy działa jak aplikacja.</li></ol></div></div></div>`;
+    <ol class="xs mut" style="padding-left:18px;margin:6px 0 0"><li>Telefon i komputer w tej samej sieci Wi-Fi, a Fuel uruchomiony (start.bat).</li><li>Jeśli się nie otwiera: uruchom <b>allow-phone.bat</b> (jednorazowo) i ustaw sieć Wi-Fi jako „prywatną".</li><li>W przeglądarce telefonu: „Dodaj do ekranu głównego" – wtedy działa jak aplikacja.</li><li>Poza domem: zainstaluj darmowy <b>Tailscale</b> na komputerze i telefonie i otwórz Fuel pod adresem komputera z Tailscale (100.x.x.x:8780) – asystent Claude też wtedy działa.</li></ol></div></div></div>`;
   }
   h += `<div class="card"><h2>Asystent Claude</h2>${cfg.mode === 'api' ? `<div class="sm">Używa klucza API (${esc(cfg.hint)}), model <b>${esc(cfg.model)}</b>.</div>` : cfg.mode === 'cli' ? '<div class="sm">Połączony z Twoim kontem Claude przez Claude Code – bez klucza API.</div>' : '<div class="sm mut">Niepołączony – przejdź do zakładki Asystent.</div>'}</div>`;
   h += `<div class="card"><h2>Dane</h2><div class="row wrap"><button data-act="export">Pobierz kopię</button><button data-act="import">Przywróć kopię</button><input type="file" id="bk" accept=".json" hidden></div>
@@ -253,13 +321,13 @@ const val = id => $('#' + id)?.value;
 function howHtml(txt) { const L = String(txt).split('\n').map(x => x.trim()).filter(Boolean); return L.length > 1 ? `<ol class="steps">${L.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<div class="sm">${esc(L[0] || '')}</div>`; }
 function optsHtml(d, s) {
   const rot = (UI.rot && UI.rot[d + s]) || 0, o = optionsFor(d, s, 3, rot); if (!o.length) return '';
-  return `<div class="opts"><div class="olab">Inne opcje <button class="ghost sm" data-act="rotOpt" data-d="${d}" data-s="${s}">↻ pokaż inne</button></div><div class="orow">${o.map(x => { const r = rec(x.rid); return `<button class="opt" data-act="swapOpt" data-d="${d}" data-s="${s}" data-rid="${x.rid}" data-serv="${x.serv}"><b>${esc(r.name)}</b><span>${r0(x.kcal)} kcal · B${r0(x.p)}${x.serv !== 1 ? ' · ×' + x.serv : ''}</span><span class="${x.nw === 0 ? 'ok' : ''}">${x.nw === 0 ? 'bez nowych zakupów' : '+' + x.nw + ' nowe prod.'}</span></button>`; }).join('')}</div></div>`;
+  return `<div class="opts"><div class="olab">Inne opcje <button class="ghost sm" data-act="rotOpt" data-d="${d}" data-s="${s}">↻ pokaż inne</button></div><div class="orow">${o.map(x => { const r = rec(x.rid); return `<button class="opt" data-act="swapOpt" data-d="${d}" data-s="${s}" data-rid="${x.rid}" data-serv="${x.serv}"><b>${esc(r.name)}</b><span>${r0(x.kcal)} kcal · B${r0(x.p)}</span><span class="${x.cover >= .25 || x.nw === 0 ? 'ok' : ''}">${x.cover >= .25 ? 'masz w domu ' + r0(x.cover * 100) + '%' : x.nw === 0 ? 'bez nowych zakupów' : '+' + x.nw + ' nowe prod.'}</span></button>`; }).join('')}</div></div>`;
 }
 function viewRec(id, serv = 1, ctx) {
   const r = rec(id); if (!r) return;
-  const m = addM(ZERO(), recipeMacros(r), serv);
-  modal(r.name, `<div class="mut sm">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${serv !== 1 ? serv + ' porcji · ' : ''}${macroLine(m)} · ${money(recipeCost(r) * serv)}</div><div style="margin:6px 0">${tagHtml(r)} ${cleanBadge(r)}</div>
-    <h2 style="margin-top:12px">Składniki${serv !== 1 ? ' (' + serv + ' porcji)' : ''}</h2>${r.items.map(x => { const i = ing(x.ing); return i ? `<div class="row sp sm" style="padding:4px 0;border-top:1px solid var(--line)"><span>${esc(i.name)}${i.nl ? ` <span class="mut xs">(${esc(i.nl)})</span>` : ''}</span><b>${fmtAmt(x.amt * serv, i.unit)}</b></div>` : ''; }).join('')}
+  const m = addM(ZERO(), recipeMacros(r), serv), mine = serv !== 1 || ctx;
+  modal(r.name, `<div class="mut sm">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${mine ? 'Twoja porcja: ' : 'porcja standardowa: '}${macroLine(m)} · ${money(recipeCost(r) * serv)}</div><div style="margin:6px 0">${tagHtml(r)} ${cleanBadge(r)}</div>
+    <h2 style="margin-top:12px">Składniki ${mine ? 'na Twoją porcję' : 'na 1 porcję'}</h2>${r.items.map(x => { const i = ing(x.ing), a = cookQty(x.amt * serv, i ? i.unit : 'g'); return i ? `<div class="row sp sm" style="padding:5px 0;border-top:1px solid var(--line)"><span>${esc(i.name)}${i.nl ? ` <span class="mut xs">(${esc(i.nl)})</span>` : ''}${(i.pantry || 0) >= a ? ' <span class="tag">masz w domu</span>' : ''}</span><b>${fmtAmt(a, i.unit)}</b></div>` : ''; }).join('')}
     ${r.how ? `<h2 style="margin-top:14px">Jak zrobić</h2>${howHtml(r.how)}` : ''}${r.prep ? `<div class="sm" style="margin-top:8px"><b>Z wyprzedzeniem:</b> ${esc(r.prep)}</div>` : ''}`,
     [{ label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : [])]);
 }
@@ -275,12 +343,12 @@ function editIng(id) {
     <div class="grid2"><div><label>Kalorie</label><input id="e_kcal" inputmode="decimal" value="${i.kcal}"></div><div><label>Białko g</label><input id="e_p" inputmode="decimal" value="${i.p}"></div>
     <div><label>Węglowodany g</label><input id="e_c" inputmode="decimal" value="${i.c}"></div><div><label>Tłuszcz g</label><input id="e_f" inputmode="decimal" value="${i.f}"></div></div>
     <div class="grid3"><div><label>Opakowanie (w tej jednostce)</label><input id="e_pack" inputmode="decimal" value="${i.pack}"></div><div><label>Cena opakowania €</label><input id="e_price" inputmode="decimal" value="${i.price}"></div><div><label>Teraz w domu</label><input id="e_pantry" inputmode="decimal" value="${i.pantry || 0}"></div></div>
-    <label>Przetworzenie</label><select id="e_proc">${[[0, '0 – nieprzetworzone'], [1, '1 – lekko (pieczywo, puszka, ser)'], [2, '2 – mocno / cukier / suplement']].map(([v, l]) => `<option value="${v}" ${(i.proc || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`,
+    <label>Świeżość po zakupie (dni, puste = domyślnie)</label><input id="e_life" inputmode="numeric" value="${i.life ?? ''}" placeholder="np. 3 dla surowego kurczaka"><label>Przetworzenie</label><select id="e_proc">${[[0, '0 – nieprzetworzone'], [1, '1 – lekko (pieczywo, puszka, ser)'], [2, '2 – mocno / cukier / suplement']].map(([v, l]) => `<option value="${v}" ${(i.proc || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`,
     [...(id ? [{ label: 'Usuń', cls: 'danger', fn: () => { if (S.recipes.some(r => r.items.some(x => x.ing === id)) && !confirm('Składnik jest w przepisach – usunąć mimo to?')) return; S.ingredients = S.ingredients.filter(x => x.id !== id); S.recipes.forEach(r => r.items = r.items.filter(x => x.ing !== id)); done(); } }] : []),
     { label: 'Zapisz', cls: 'pri', fn: () => {
       const o = id ? i : { id: uid() }, p = num(val('e_p')), c = num(val('e_c')), f = num(val('e_f'));
       if (!val('e_name').trim()) return toast('Podaj nazwę');
-      Object.assign(o, { name: val('e_name').trim(), nl: val('e_nl').trim(), unit: val('e_unit'), aisle: val('e_aisle'), p, c, f, kcal: val('e_kcal').trim() ? num(val('e_kcal')) : r0(4 * p + 4 * c + 9 * f), pack: num(val('e_pack')), price: num(val('e_price')), pantry: num(val('e_pantry')), proc: +val('e_proc') });
+      Object.assign(o, { name: val('e_name').trim(), nl: val('e_nl').trim(), unit: val('e_unit'), aisle: val('e_aisle'), p, c, f, kcal: val('e_kcal').trim() ? num(val('e_kcal')) : r0(4 * p + 4 * c + 9 * f), pack: num(val('e_pack')), price: num(val('e_price')), pantry: num(val('e_pantry')), proc: +val('e_proc') }); if (val('e_life').trim()) o.life = num(val('e_life')); else delete o.life;
       delete o.starter; if (!id) S.ingredients.push(o); done();
     } }]);
   function done() { save(); closeModal(); render(); }
@@ -321,7 +389,7 @@ function editSlot(d, s) {
   const dp = S.plan[d] || (S.plan[d] = {}), it = dp[s] || { rid: '', serv: 1 };
   const opts = S.recipes.filter(r => r.slots.includes(s)).sort((a, b) => a.name.localeCompare(b.name, 'pl'));
   modal(`${fmtDay(d)} · ${SLOT_PL[s]}`, `${it.eaten ? '' : optsHtml(d, s)}<label>Przepis</label><select id="s_r"><option value="">— nic —</option>${opts.map(r => `<option value="${r.id}" ${r.id === it.rid ? 'selected' : ''}>${esc(r.name)} (${r0(recipeMacros(r).kcal)} kcal${isClean(r) ? '' : ', przetw.'})</option>`).join('')}</select>
-    <label>Porcje</label><input id="s_s" type="number" step="0.25" min="0.25" value="${it.serv}">
+    <label>Wielkość porcji (1 = standardowa; dobiera się do kalorii)</label><input id="s_s" type="number" step="0.25" min="0.25" value="${it.serv}">
     <label class="row chk"><input type="checkbox" id="s_l" ${it.locked ? 'checked' : ''}> Przypnij (generator tego nie ruszy)</label>
     <label class="row chk"><input type="checkbox" id="s_k" ${it.skipped ? 'checked' : ''}> Pomiń ten posiłek (nie wchodzi na listę zakupów)</label>`,
     [{ label: 'Zapisz', cls: 'pri', fn: () => {
@@ -333,11 +401,11 @@ function setEatenReset(it) { for (const [id, q] of Object.entries(it.used || {})
 
 function menuPicker() {
   const wk = UI.week, sel = new Set(S.menus[wk] || []);
-  const groups = [['Śniadania', r => !r.slots.includes('lunch') && !r.slots.includes('dinner') && r.slots.includes('breakfast')], ['Lunch i kolacje', r => r.slots.includes('lunch') || r.slots.includes('dinner')], ['Przekąski', r => !r.slots.includes('lunch') && !r.slots.includes('dinner') && !r.slots.includes('breakfast')]];
+  const groups = [['Śniadania', r => r.slots.includes('breakfast')], ['Na uczelnię (szybkie albo kupne)', r => r.slots.includes('lunch') && !r.slots.includes('breakfast')], ['Obiadokolacje', r => r.slots.includes('dinner')], ['Przekąski', r => r.slots.length === 1 && r.slots[0] === 'snack']];
   const list = (title, f) => { const rs = S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')); return rs.length ? `<h2 style="margin-top:12px">${title}</h2>` + rs.map(r => `<label class="row chk pick"><input type="checkbox" data-pick="${r.id}" ${sel.has(r.id) ? 'checked' : ''}><span class="grow"><b>${esc(r.name)}</b> <span class="mut xs">${r0(recipeMacros(r).kcal)} kcal · ${money(recipeCost(r))}</span><br>${tagHtml(r)} ${cleanBadge(r)}</span></label>`).join('') : ''; };
   const read = () => $$('[data-pick]').filter(x => x.checked).map(x => x.dataset.pick);
-  modal(`Menu na tydzień od ${fmtDay(wk)}`, `<div class="mut sm">Zaznacz, co chcesz jeść w tym tygodniu (np. 3 śniadania i 3–4 dania). Generator rozłoży je na dni, a lista zakupów zrobi się z nich. Gdy nic nie zaznaczysz w danej grupie, użyje wszystkich.</div><div class="banner sm" id="pk_sum" style="position:sticky;top:0;margin:8px 0"></div>${groups.map(([t, f]) => list(t, f)).join('')}`,
-    [{ label: 'Losuj za mnie', fn: () => { const pickN = (f, n) => S.recipes.filter(f).filter(r => !S.profile.clean || isClean(r)).sort(() => Math.random() - .5).slice(0, n).map(r => r.id); const ids = new Set([...pickN(groups[0][1], 3), ...pickN(groups[1][1], Math.min(6, 2 * Math.ceil(7 / S.profile.prepDays)))]); $$('[data-pick]').forEach(x => x.checked = ids.has(x.dataset.pick)); } },
+  modal(`Menu na tydzień od ${fmtDay(wk)}`, `<div class="mut sm">Zaznacz, co chcesz jeść w tym tygodniu (np. 3 śniadania, 2–3 rzeczy na uczelnię i 2–3 obiadokolacje). Generator rozłoży je na dni, a lista zakupów zrobi się z nich. Gdy nic nie zaznaczysz w danej grupie, użyje wszystkich.</div><div class="banner sm" id="pk_sum" style="position:sticky;top:0;margin:8px 0"></div>${groups.map(([t, f]) => list(t, f)).join('')}`,
+    [{ label: 'Losuj za mnie', fn: () => { const pickN = (f, n) => S.recipes.filter(f).filter(r => !S.profile.clean || isClean(r)).sort(() => Math.random() - .5).slice(0, n).map(r => r.id); const ids = new Set([...pickN(groups[0][1], 3), ...pickN(groups[1][1], Math.ceil(7 / S.profile.prepDays)), ...pickN(groups[2][1], Math.ceil(7 / S.profile.prepDays))]); $$('[data-pick]').forEach(x => x.checked = ids.has(x.dataset.pick)); } },
     { label: 'Zapisz', fn: () => { S.menus[wk] = read(); save(); closeModal(); render(); } },
     { label: 'Zapisz i wygeneruj', cls: 'pri', fn: () => { S.menus[wk] = read(); const w = generate(wk); save(); closeModal(); render(); toast(w.length ? w[0] : 'Plan gotowy – sprawdź listę zakupów'); } }]);
   const upd = () => { const ids = read(), set = new Set(); ids.forEach(id => rec(id).items.forEach(x => set.add(x.ing))); const el = $('#pk_sum'); if (el) el.innerHTML = ids.length ? `Wybrane: <b>${ids.length}</b> dań · razem <b>${set.size}</b> różnych produktów do kupienia` : 'Nic nie wybrano – generator użyje wszystkich przepisów.'; };
@@ -457,13 +525,15 @@ const ACTIONS = {
   rotOpt: ds => { UI.rot = UI.rot || {}; UI.rot[ds.d + ds.s] = (UI.rot[ds.d + ds.s] || 0) + 1; if ($('#modal').open) { closeModal(); editSlot(ds.d, ds.s); } else render(); },
   applySwap: ds => withUndo(() => { const it = S.plan[ds.d][ds.s]; it.rid = ds.rid; it.serv = +ds.serv; return 'Zamieniono danie'; }),
   ftab: ds => { UI.foodsTab = ds.t; UI.q = ''; render(); },
+  ftabFridge: () => { UI.foodsTab = 'fridge'; UI.view = 'foods'; render(); window.scrollTo(0, 0); },
+  fridgeAdd, fridgeEdit: ds => fridgeEdit(ds.id), ideaPlan: ds => ideaPlan(ds.id),
   sfilter: ds => { UI.slotFilter = ds.k; render(); },
   editIng: ds => editIng(ds.id), editRec: ds => editRec(ds.id),
   trainDay: ds => { const a = S.profile.trainDays, i = +ds.i; S.profile.trainDays = a.includes(i) ? a.filter(x => x !== i) : [...a, i].sort(); save(); render(); },
   shopChk: (ds, el) => { (S.shopChecked[UI.week] = S.shopChecked[UI.week] || {})[ds.id] = el.checked; save(); render(); },
   genWeekHere: () => { UI.week = weekStart(UI.date); withUndo(() => { const w = generate(UI.week); return w.length ? w[0] : 'Plan wygenerowany – sprawdź listę zakupów'; }); },
   menuHere: () => { UI.week = weekStart(UI.date); menuPicker(); },
-  checkAll: () => { const chk = S.shopChecked[UI.week] = S.shopChecked[UI.week] || {}; const rows = shopSorted(shopList(UI.week)); const all = rows.every(r => chk[r.i.id]); rows.forEach(r => chk[r.i.id] = !all); save(); render(); },
+  checkAll: () => { const chk = S.shopChecked[UI.week] = S.shopChecked[UI.week] || {}; const rows = shopSorted(shopList(UI.week)); const all = rows.every(r => chk[r.i.id + '|' + r.trip]); rows.forEach(r => chk[r.i.id + '|' + r.trip] = !all); save(); render(); },
   toReminders: () => { if (!remindersText(UI.week)) return toast('Lista zakupów jest pusta'); if (!localStorage.getItem('fuel-rem-ready')) remindersSetup(); else launchReminders(); },
   copyList: async () => {
     const txt = shopText(UI.week);
@@ -471,8 +541,8 @@ const ACTIONS = {
   },
   boughtToPantry: () => {
     const chk = S.shopChecked[UI.week] || {}; let n = 0;
-    for (const r of shopList(UI.week)) if (chk[r.i.id] && r.buy > .01) { r.i.pantry = (r.i.pantry || 0) + r.qty; n++; delete chk[r.i.id]; }
-    save(); render(); toast(n ? `${n} pozycji dodano do spiżarni` : 'Najpierw zaznacz kupione rzeczy');
+    for (const r of shopSorted(shopList(UI.week))) { const key = r.i.id + '|' + r.trip; if (chk[key]) { r.i.pantry = (r.i.pantry || 0) + r.qty; n++; delete chk[key]; } }
+    save(); render(); toast(n ? `${n} pozycji dodano do lodówki (zużyją się z planem)` : 'Najpierw zaznacz kupione rzeczy');
   },
   copyHook: async () => { try { await navigator.clipboard.writeText($('#hook').textContent); toast('Skopiowano adres'); } catch (e) { prompt('Skopiuj:', $('#hook').textContent); } },
   export: async () => {
@@ -485,14 +555,38 @@ const ACTIONS = {
   aiSend: () => { const t = $('#aiin'); const v = t && t.value.trim(); if (!v || UI.aiBusy) return; t.value = ''; aiSend(v); },
   aiSuggest: ds => { aiSend(UI.sugg[+ds.i]); },
   aiClear: () => { S.chat = []; save(); render(); },
+  aiTest, openPc: () => { let v = (val('pc_url') || '').trim(); if (!v) return toast('Wpisz adres komputera'); if (!/^https?:\/\//.test(v)) v = 'http://' + v; try { localStorage.setItem('fuel-pc', v); } catch (e) { } location.href = v; },
   aiLogin: async () => { await fetch('/api/ai/login', { method: 'POST', body: '{}' }); toast('Okno logowania otwarte na komputerze – zaloguj się, potem kliknij „Sprawdź połączenie"'); },
-  aiRecheck: async () => { await fetch('/api/ai/recheck', { method: 'POST', body: '{}' }); await loadCfg(); render(); toast((UI.cfg || {}).mode === 'none' ? 'Jeszcze niepołączony' : 'Połączono!'); },
+  aiRecheck: async () => { UI.cfgLoaded = false; render(); try { await fetch('/api/ai/recheck', { method: 'POST', body: '{}' }); } catch (e) { } await loadCfg(); render(); toast((UI.cfg || {}).mode === 'none' ? 'Jeszcze niepołączony' : 'Połączono!'); },
   aiSaveKey: async () => { const k = val('ai_key').trim(); if (!k) return toast('Wklej klucz'); if (UI.local) localStorage.setItem('fuel-key', k); else await fetch('/api/ai/config', { method: 'PUT', body: JSON.stringify({ key: k }) }); await loadCfg(); render(); toast('Klucz zapisany'); },
   aiSaveCfg: async () => { const b = { model: val('ai_model') }; if (val('ai_key2').trim()) b.key = val('ai_key2').trim(); await fetch('/api/ai/config', { method: 'PUT', body: JSON.stringify(b) }); await loadCfg(); render(); toast('Zapisano'); },
 };
 async function loadCfg() {
-  if (UI.local) { let k = ''; try { k = localStorage.getItem('fuel-key') || ''; } catch (e) { } UI.cfg = { local: true, hasKey: !!k, hint: k ? '…' + k.slice(-4) : '', model: 'claude-sonnet-5-5', mode: k ? 'api' : 'none' }; return; }
-  try { UI.cfg = await (await fetch('/api/ai/config')).json(); } catch (e) { UI.cfg = {}; } }
+  if (UI.local) { let k = ''; try { k = localStorage.getItem('fuel-key') || ''; } catch (e) { } UI.cfg = { local: true, hasKey: !!k, hint: k ? '…' + k.slice(-4) : '', model: 'claude-sonnet-5-5', mode: k ? 'api' : 'none' }; UI.cfgLoaded = true; return; }
+  try { const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 15000); UI.cfg = await (await fetch('/api/ai/config', { signal: ctl.signal })).json(); clearTimeout(tm); UI.cfgLoaded = true; }
+  catch (e) { UI.cfg = { error: e.name === 'AbortError' ? 'serwer nie odpowiada' : String(e.message || e) }; UI.cfgLoaded = true; }
+}
+async function aiTest() {   // step-by-step diagnosis so a failure always says WHY
+  const steps = []; const show = () => modal('Test połączenia z Claude', `<div class="sm">${steps.map(s => `<div style="padding:4px 0">${s}</div>`).join('')}</div>`);
+  show();
+  await loadCfg(); const cfg = UI.cfg || {};
+  if (cfg.error) { steps.push('✗ Serwer Fuel: ' + esc(cfg.error)); return show(); }
+  steps.push(UI.local ? '✓ Wersja samodzielna (bez serwera komputera)' : '✓ Serwer Fuel odpowiada');
+  if (!UI.local) {
+    steps.push(cfg.cli && cfg.cli.found ? '✓ Claude Code znaleziony na komputerze' : '✗ Claude Code nie znaleziony na komputerze');
+    if (cfg.mode !== 'api') steps.push(cfg.cli && cfg.cli.loggedIn ? '✓ Zalogowany na konto Claude' : '✗ Niezalogowany (kliknij „Zaloguj się do Claude")');
+  }
+  if (cfg.mode === 'none' || cfg.mode === 'checking') { steps.push('✗ Asystent nie jest połączony'); return show(); }
+  steps.push('… wysyłam krótkie pytanie (do 25 s)'); show();
+  const t0 = Date.now();
+  try {
+    let text = '';
+    if (cfg.mode === 'cli') { const r = await fetch('/api/ai/cli', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Odpowiedz tylko słowem: ok' }) }); const j = await r.json(); if (!r.ok) throw new Error((j.error && j.error.message) || 'błąd'); text = j.text; }
+    else { const r = await callApi({ system: 'Odpowiadaj krótko.', messages: [{ role: 'user', content: 'Odpowiedz tylko słowem: ok' }], max_tokens: 20 }); const j = await r.json(); if (!r.ok) throw new Error((j.error && j.error.message) || 'błąd'); text = (j.content || []).map(b => b.text || '').join(''); }
+    steps.pop(); steps.push(`✓ Claude odpowiedział „${esc(String(text).trim().slice(0, 40))}" w ${Math.round((Date.now() - t0) / 1000)} s`);
+  } catch (e) { steps.pop(); steps.push('✗ ' + esc(e.message || String(e))); }
+  show();
+}
 
 document.addEventListener('click', e => {
   const mb = e.target.closest('[data-mbtn]'); if (mb) { const b = modal.btns[+mb.dataset.mbtn]; if (b && b.fn) b.fn(); return; }

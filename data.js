@@ -2,9 +2,9 @@
 /* Starter data: whole-food, no added sugar, typical Dutch supermarket (Lidl / AH / Jumbo) products.
    Macros are typical values per 100 g / 100 ml (or per piece for 'pcs') – check them against your packaging.
    proc: 0 = unprocessed, 1 = lightly processed (bread, canned, cheese), 2 = highly processed / added sugar / supplement. */
-const AISLES = ['Warzywa i owoce', 'Pieczywo', 'Mięso i ryby', 'Nabiał i jajka', 'Produkty suche', 'Mrożonki', 'Napoje', 'Suplementy', 'Inne'];
+const AISLES = ['Warzywa i owoce', 'Pieczywo', 'Mięso i ryby', 'Nabiał i jajka', 'Produkty suche', 'Mrożonki', 'Napoje', 'Suplementy', 'Gotowe', 'Inne'];
 
-const SEED_VERSION = 3;
+const SEED_VERSION = 5;
 
 function seedData() {
   const A = AISLES;
@@ -70,7 +70,7 @@ function seedData() {
   const has = new Set(ingredients.map(i => i.id));
 
   // name, slots, tags, how, prep, items [[key, amount]]
-  const R = (name, slots, tags, how, prep, items) => {
+  const R = (name, slots, tags, how, prep, items) => {  // tags include 'kupne' for ready-made shop food
     items.forEach(([k]) => { if (!has.has(k)) throw new Error('seed: unknown ingredient ' + k); });
     return { id: 'r_' + name.toLowerCase().replace(/[^a-z0-9ąćęłńóśźż]+/g, '-').slice(0, 30), name, slots, tags, how, prep, starter: true, items: items.map(([ing, amt]) => ({ ing, amt })) };
   };
@@ -116,12 +116,23 @@ function seedData() {
   ];
   for (const x of extra.recipes) recipes.push(R(...x));
   for (const r of recipes) { const st = RECIPE_STEPS[r.name]; if (st) r.how = st.join('\n'); }
+  /* Two real meals a day: breakfast (shake) and a big cooked "obiadokolacja"; in between something to take to uni
+     (quick to make with the breakfast, or ready-made from a shop). Cooked mains became dinner-only and get bigger portions. */
+  const LUNCH_ONLY = new Set(['Wrap z tuńczykiem i awokado', 'Sałatka z tuńczykiem i białą fasolą', 'Twaróg z warzywami i chlebem', 'Wrap z kurczakiem i warzywami', 'Sałatka z kurczakiem i ciecierzycą', 'Sałatka z kaszą gryczaną, jajkiem i fetą', 'Ciecierzyca, quinoa i feta', 'Kurczak, quinoa i awokado', 'Bowl z edamame, tofu i ryżem', 'Makrela wędzona, ziemniaki i sałatka', 'Tuńczyk, makaron i feta']);
+  const LUNCH_ALSO = new Set(['Jogurt grecki z owocami i orzechami', 'Skyr bowl z bananem', 'Overnight oats z twarogiem', 'Pudding chia z mango', 'Kanapki z jajkiem i awokado', 'Serek wiejski na pieczywie']);
+  const nice = (a, u) => u === 'pcs' ? Math.max(.5, Math.round(a * 2) / 2) : (a < 20 ? Math.round(a) : Math.round(a / 5) * 5);
+  for (const r of recipes) {
+    if (LUNCH_ONLY.has(r.name) || r.slots.includes('lunch') && r.tags.includes('kupne')) r.slots = ['lunch'];
+    else if (LUNCH_ALSO.has(r.name)) r.slots = [...new Set([...r.slots, 'lunch'])];
+    else if (r.slots.includes('dinner') && !r.slots.includes('breakfast') && !r.slots.includes('snack')) r.slots = ['dinner'];
+    if (r.slots.length === 1 && r.slots[0] === 'dinner' && !r.big) { r.big = 1; for (const it of r.items) { const i = ingredients.find(x => x.id === it.ing); it.amt = nice(it.amt * 1.6, i ? i.unit : 'g'); } }
+  }
   return {
     rev: 0, setupDone: false, starter: true, seedVersion: SEED_VERSION,
     profile: {
       weight: 75, height: 180, age: 22, sex: 'm', bodyFat: 15, activity: 1.5, surplus: 7,
       proteinPerKg: 1.8, fatPct: 25, trainDelta: 250, trainDays: [0, 2, 4],
-      budget: 70, packFit: 'strong', store: 'Lidl', snack: false, clean: true, prepDays: 3, cheatCap: 12, aiOn: true,
+      budget: 90, packFit: 'strong', meatPref: 'normal', shopTrips: 1, trip2Day: 3, store: 'Lidl', snack: false, clean: true, prepDays: 3, cheatCap: 12, aiOn: true,
     },
     ingredients, recipes, plan: {}, menus: {}, log: {}, workouts: {}, adjust: {}, shopChecked: {}, chat: [],
   };
