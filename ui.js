@@ -20,7 +20,7 @@ function viewToday() {
   const remain = t.kcal - c.kcal, pct = Math.max(0, Math.min(1, c.kcal / t.kcal));
   const train = isTrain(d), wk = S.workouts[d], isToday = d === today();
   let h = '';
-  if (S.starter) h += `<div class="banner"><b>Witaj.</b> Masz już ~80 przepisów bez cukru i mało przetworzonych oraz typowe holenderskie produkty. Sprawdź makro i ceny w <b>Jedzenie</b> (to wartości przybliżone). <div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="nav" data-v="plan">Zaplanuj tydzień →</button><button class="sm" data-act="clearStarter">Usuń wszystkie startowe</button></div></div>`;
+  if (S.starter && !S.welcomeSeen) h += `<div class="banner"><b>Witaj.</b> Masz już ponad 140 przepisów bez cukru i mało przetworzonych oraz typowe holenderskie produkty. Sprawdź makro i ceny w <b>Jedzenie</b> (to wartości przybliżone). <div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="nav" data-v="plan">Zaplanuj tydzień →</button><button class="sm" data-act="welcomeOk">Rozumiem</button><button class="sm ghost" data-act="clearStarter">Usuń wszystkie startowe</button></div></div>`;
   const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent), isMobile = /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
   const bdays = UI.local ? Math.floor((parseD(today()) - parseD(S.lastBackup || today())) / 864e5) : 0;
@@ -58,7 +58,7 @@ function viewToday() {
     if (live(it)) {
       const r = rec(it.rid), m = itemMacros(it);
       L += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
-        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div></div></div>${it.eaten ? '' : optsHtml(d, s)}`;
+        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div></div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? '' : optsHtml(d, s)}`;
     } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
   for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
@@ -66,21 +66,23 @@ function viewToday() {
   return h + `<div class="today2"><div class="tl">${L}</div><div class="tr">${Rt}</div></div>`;
 }
 
-function saveBar() {
-  const d = Math.floor((parseD(today()) - parseD(S.lastBackup || today())) / 864e5), cfg = typeof syncCfg === 'function' && syncCfg();
-  return `<div class="savebar"><div class="xs mut">✓ Plan, zakupy i ustawienia zapisują się same ${UI.local ? 'na tym telefonie' : 'na komputerze'}${cfg ? ' i w synchronizacji' : ''}. Kopia zapasowa: ${d <= 0 ? 'dziś' : d + ' dni temu'}.</div><button class="sm pri" data-act="saveBackup">Zapisz kopię</button></div>`;
+function saveBar() {   // nothing to press: everything is remembered automatically
+  const t = UI.savedAt || S.savedAt, when = t ? new Date(t).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `<div class="savebar"><div class="xs mut">✓ Pamiętam wszystko, co ustawiłeś – zapisuje się samo${UI.local ? ' na tym telefonie' : ' na komputerze'}${when ? ' (' + when + ')' : ''}. Pomyłkę cofniesz przyciskiem „Cofnij".</div></div>`;
 }
 function viewPlan() {
   const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0 }, menu = S.menus[wk] || [];
   let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
   h += saveBar();
-  h += `<div class="card"><div class="row wrap"><button class="pri" data-act="menuPicker">Wybierz dania na tydzień</button><button data-act="gen">Wygeneruj tydzień</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost danger" data-act="clearWeek">Wyczyść</button></div>
+  h += `<div class="card"><div class="row wrap"><button class="pri" data-act="menuPicker">Wybierz dania na tydzień</button><button data-act="basePicker">Półprodukty na tydzień</button><button data-act="gen">Wygeneruj tydzień</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost danger" data-act="clearWeek">Wyczyść</button></div>
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Nie wybrałeś menu – generator użyje wszystkich przepisów. Wybierz dania, a lista zakupów powstanie z nich.'}</div>
+    ${(S.bases[wk] || []).length ? `<div class="mut sm" style="margin-top:8px"><b>Zestaw półproduktów (${S.bases[wk].length}):</b> ${S.bases[wk].map(k => ing(k)).filter(Boolean).map(i => `<span class="tag">${esc(i.name.toLowerCase())}</span>`).join(' ')} <button class="ghost sm" data-act="basePicker">zmień</button></div>` : `<div class="mut xs" style="margin-top:6px">Półprodukty: wybierz kilka produktów, a z nich ułożę wiele różnych dań – kupujesz mało rzeczy.</div>`}
     <div class="grid2" style="margin-top:10px">
       <div><label>Gotuję raz na</label><select data-bind="profile.prepDays">${[1, 2, 3, 4].map(n => `<option value="${n}" ${S.profile.prepDays === n ? 'selected' : ''}>${n === 1 ? 'codziennie' : n + ' dni'}</option>`).join('')}</select></div>
       <div><label>Przekąska</label><select data-bind="profile.snack"><option value="false" ${!S.profile.snack ? 'selected' : ''}>nie – śniadanie, uczelnia, obiadokolacja</option><option value="true" ${S.profile.snack ? 'selected' : ''}>tak – dodatkowa przekąska</option></select></div>
       <div><label>Tryb czysty</label><select data-bind="profile.clean"><option value="true" ${S.profile.clean ? 'selected' : ''}>bez przetworzonych</option><option value="false" ${!S.profile.clean ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div><label>Dania</label><select data-bind="profile.mealStyle">${[['mix', 'przepisy i składane z półproduktów'], ['recipes', 'tylko gotowe przepisy'], ['combos', 'tylko składane z półproduktów']].map(([v, l]) => `<option value="${v}" ${(S.profile.mealStyle || 'mix') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Mięso i ryby na obiadokolację</label><select data-bind="profile.meatPref">${[['less', 'rzadziej'], ['normal', 'normalnie'], ['more', 'często']].map(([v, l]) => `<option value="${v}" ${(S.profile.meatPref || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Zakupy w tygodniu</label><select data-bind="profile.shopTrips"><option value="1" ${(S.profile.shopTrips | 0) < 2 ? 'selected' : ''}>raz (świeże mięso tylko na pierwsze dni)</option><option value="2" ${(S.profile.shopTrips | 0) >= 2 ? 'selected' : ''}>dwa razy (świeże przez cały tydzień)</option></select></div>
       ${(S.profile.shopTrips | 0) >= 2 ? `<div><label>Drugie zakupy</label><select data-bind="profile.trip2Day">${[2, 3, 4].map(n => `<option value="${n}" ${(S.profile.trip2Day ?? 3) === n ? 'selected' : ''}>${DAYFULL[n]}</option>`).join('')}</select></div>` : ''}</div></div>`;
@@ -96,7 +98,7 @@ function viewPlan() {
       ${any ? `<div class="xs mut">${r0(dm.kcal)} / ${r0(t.kcal)} kcal · białko ${r0(dm.p)}/${r0(t.p)} g</div>${bar(dm.kcal, t.kcal, 'var(--acc)')}` : '<div class="xs mut">Pusto</div>'}`;
     for (const s of SL()) {
       const it = dp[s], r = live(it);
-      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div></div>`;
+      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div><span class="mut" aria-hidden="true">✎</span></div>`;
     }
     h += `</div>`;
   }
@@ -259,6 +261,16 @@ function weekChart() {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%">${b}</svg>`;
 }
 
+function storageCard() {
+  if (!UI.local) return '';
+  if (!UI.snapsLoaded) { UI.snapsLoaded = true; idbKeys().then(k => { UI.snaps = (k || []).filter(x => String(x).startsWith('snap-')).sort().reverse(); if (UI.view === 'me') render(); }); }
+  const snaps = UI.snaps || [], t = UI.savedAt || S.savedAt, when = t ? new Date(t).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '–';
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent), standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  return `<div class="card"><h2>Zapis danych</h2><div class="sm">Wszystko, co ustawiasz, zapisuje się <b>samo</b> na tym telefonie – w dwóch miejscach przeglądarki naraz${UI.persisted ? ', z ochroną przed skasowaniem' : ''}. Nie musisz niczego zapisywać ręcznie.</div>
+    <div class="xs mut" style="margin:6px 0">Ostatni zapis: ${esc(when)}. Co 30 minut zachowuję też wcześniejszą wersję (${snaps.length}), do której możesz wrócić:</div>
+    ${snaps.slice(0, 6).map(k => `<div class="meal" style="padding:8px 0"><div class="grow sm">${esc(new Date(+String(k).slice(5)).toLocaleString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div><button class="sm" data-act="snapRestore" data-k="${k}">Przywróć</button></div>`).join('') || '<div class="xs mut">Pierwsza wersja pojawi się po kilkunastu minutach używania.</div>'}
+    ${isIOS && !standalone ? '<div class="warnbox" style="margin:10px 0 0">Na iPhonie zwykła karta Safari może skasować dane strony po ok. 7 dniach bez otwarcia. Dodaj Fuel do ekranu głównego („Udostępnij → Do ekranu początkowego") i zawsze otwieraj go stamtąd – wtedy dane zostają.</div>' : ''}</div>`;
+}
 function viewMe() {
   const p = S.profile, cfg = UI.cfg || {}, origin = location.origin;
   const hookUrl = UI.local ? location.origin + location.pathname + '?workout=Trening' : `${origin}/api/workout?token=${cfg.hookToken || ''}&name=Trening`;
@@ -295,6 +307,7 @@ function viewMe() {
     <ol class="xs mut" style="padding-left:18px;margin:6px 0 0"><li>Telefon i komputer w tej samej sieci Wi-Fi, a Fuel uruchomiony (start.bat).</li><li>Jeśli się nie otwiera: uruchom <b>allow-phone.bat</b> (jednorazowo) i ustaw sieć Wi-Fi jako „prywatną".</li><li>W przeglądarce telefonu: „Dodaj do ekranu głównego" – wtedy działa jak aplikacja.</li><li>Poza domem: zainstaluj darmowy <b>Tailscale</b> na komputerze i telefonie i otwórz Fuel pod adresem komputera z Tailscale (100.x.x.x:8780) – asystent Claude też wtedy działa.</li></ol></div></div></div>`;
   }
   h += syncCard();
+  h += storageCard();
   h += `<div class="card"><h2>Asystent Claude</h2>${cfg.mode === 'api' ? `<div class="sm">Używa klucza API (${esc(cfg.hint)}), model <b>${esc(cfg.model)}</b>.</div>` : cfg.mode === 'cli' ? '<div class="sm">Połączony z Twoim kontem Claude przez Claude Code – bez klucza API.</div>' : '<div class="sm mut">Niepołączony – przejdź do zakładki Asystent.</div>'}</div>`;
   h += `<div class="card"><h2>Dane</h2><div class="row wrap"><button data-act="export">Pobierz kopię</button><button data-act="import">Przywróć kopię</button><input type="file" id="bk" accept=".json" hidden></div>
     <div class="mut xs" style="margin-top:8px">${UI.local ? 'Dane są zapisane tylko w tej przeglądarce, na tym urządzeniu. Pobieraj kopię co jakiś czas i zawsze przed czyszczeniem danych przeglądarki.' : 'Wszystko jest w <code>data.json</code> na komputerze (codzienne kopie w <code>backups/</code>). Telefon i komputer korzystają z tych samych danych przez serwer.'}</div></div>`;
@@ -327,16 +340,17 @@ const val = id => $('#' + id)?.value;
 /* ============ editors ============ */
 function howHtml(txt) { const L = String(txt).split('\n').map(x => x.trim()).filter(Boolean); return L.length > 1 ? `<ol class="steps">${L.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<div class="sm">${esc(L[0] || '')}</div>`; }
 function optsHtml(d, s) {
-  const rot = (UI.rot && UI.rot[d + s]) || 0, o = optionsFor(d, s, 3, rot); if (!o.length) return '';
+  const k = d + s, rot = (UI.rot && UI.rot[k]) || 0, seen = (UI.optSeen && UI.optSeen[k]) || [], o = optionsFor(d, s, 3, rot, seen); if (!o.length) return '';
   return `<div class="opts"><div class="olab">Inne opcje <button class="ghost sm" data-act="rotOpt" data-d="${d}" data-s="${s}">↻ pokaż inne</button></div><div class="orow">${o.map(x => { const r = rec(x.rid); return `<button class="opt" data-act="swapOpt" data-d="${d}" data-s="${s}" data-rid="${x.rid}" data-serv="${x.serv}"><b>${esc(r.name)}</b><span>${r0(x.kcal)} kcal · B${r0(x.p)}</span><span class="${x.cover >= .25 || x.nw === 0 ? 'ok' : ''}">${x.cover >= .25 ? 'masz w domu ' + r0(x.cover * 100) + '%' : x.nw === 0 ? 'bez nowych zakupów' : '+' + x.nw + ' nowe prod.'}</span></button>`; }).join('')}</div></div>`;
 }
+function saveCombo(r) { S.recipes.push({ id: uid(), name: r.name, slots: r.slots.slice(), items: r.items.map(x => ({ ...x })), how: r.how, prep: r.prep, tags: r.tags.filter(t => t !== 'składane').concat('własny') }); save(); toast('Zapisano w Twoich przepisach (Jedzenie → Przepisy)'); }
 function viewRec(id, serv = 1, ctx) {
   const r = rec(id); if (!r) return;
   const m = addM(ZERO(), recipeMacros(r), serv), mine = serv !== 1 || ctx;
   modal(r.name, `<div class="mut sm">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${mine ? 'Twoja porcja: ' : 'porcja standardowa: '}${macroLine(m)} · ${money(recipeCost(r) * serv)}</div><div style="margin:6px 0">${tagHtml(r)} ${cleanBadge(r)}</div>
     <h2 style="margin-top:12px">Składniki ${mine ? 'na Twoją porcję' : 'na 1 porcję'}</h2>${r.items.map(x => { const i = ing(x.ing), a = cookQty(x.amt * serv, i ? i.unit : 'g'); return i ? `<div class="row sp sm" style="padding:5px 0;border-top:1px solid var(--line)"><span>${esc(i.name)}${i.nl ? ` <span class="mut xs">(${esc(i.nl)})</span>` : ''}${(i.pantry || 0) >= a ? ' <span class="tag">masz w domu</span>' : ''}</span><b>${fmtAmt(a, i.unit)}</b></div>` : ''; }).join('')}
     ${r.how ? `<h2 style="margin-top:14px">Jak zrobić</h2>${howHtml(r.how)}` : ''}${r.prep ? `<div class="sm" style="margin-top:8px"><b>Z wyprzedzeniem:</b> ${esc(r.prep)}</div>` : ''}`,
-    [{ label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : [])]);
+    [r.combo ? { label: 'Zapisz jako mój przepis', fn: () => saveCombo(r) } : { label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : [])]);
 }
 
 function editIng(id) {
@@ -392,20 +406,66 @@ function editRec(id) {
   paint();
 }
 
+/* days around d that share the same cooked dish in this slot (one cooking session) */
+function blockDays(d, s) {
+  const it = (S.plan[d] || {})[s]; if (!it) return [d];
+  const out = [d];
+  for (const dir of [-1, 1]) for (let x = addDays(d, dir); ; x = addDays(x, dir)) { const y = (S.plan[x] || {})[s]; if (y && y.rid === it.rid && !y.eaten && x >= today()) out.push(x); else break; }
+  return out.sort();
+}
+/* draw a different dish for just this meal; the rest of the week stays exactly as it is */
+function regenSlot(d, s) {
+  const dp = S.plan[d] || (S.plan[d] = {}); delete dp[s];
+  if (d < today()) return [];
+  const w = generate(weekStart(d), { keep: true, only: d });
+  UI.optSeen && delete UI.optSeen[d + s]; return w;
+}
 function editSlot(d, s) {
-  const dp = S.plan[d] || (S.plan[d] = {}), it = dp[s] || { rid: '', serv: 1 };
-  const opts = S.recipes.filter(r => r.slots.includes(s)).sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-  modal(`${fmtDay(d)} · ${SLOT_PL[s]}`, `${it.eaten ? '' : optsHtml(d, s)}<label>Przepis</label><select id="s_r"><option value="">— nic —</option>${opts.map(r => `<option value="${r.id}" ${r.id === it.rid ? 'selected' : ''}>${esc(r.name)} (${r0(recipeMacros(r).kcal)} kcal${isClean(r) ? '' : ', przetw.'})</option>`).join('')}</select>
-    <label>Wielkość porcji (1 = standardowa; dobiera się do kalorii)</label><input id="s_s" type="number" step="0.25" min="0.25" value="${it.serv}">
-    <label class="row chk"><input type="checkbox" id="s_l" ${it.locked ? 'checked' : ''}> Przypnij (generator tego nie ruszy)</label>
-    <label class="row chk"><input type="checkbox" id="s_k" ${it.skipped ? 'checked' : ''}> Pomiń ten posiłek (nie wchodzi na listę zakupów)</label>`,
-    [{ label: 'Zapisz', cls: 'pri', fn: () => {
-      const rid = val('s_r'); if (!rid) delete dp[s]; else { const eaten = it.eaten, used = it.used, same = it.rid === rid; dp[s] = { rid, serv: Math.max(.25, num(val('s_s')) || 1), locked: $('#s_l').checked || (!same), skipped: $('#s_k').checked, eaten: same ? eaten : false, used: same ? used : {} }; if (!same && eaten) setEatenReset(it); }
-      save(); closeModal(); render();
-    } }]);
+  const dp = S.plan[d] || (S.plan[d] = {}), it = dp[s] || null, r = it && live(it) ? rec(it.rid) : null, week = weekStart(d), days = it ? blockDays(d, s) : [d];
+  const draft = { serv: it ? it.serv : 1 }, tgtK = it && r ? itemMacros(it).kcal : targets(d).kcal * shareOf(s);
+  const info = () => r ? `${macroLine(addM(ZERO(), recipeMacros(r), draft.serv))}` : '';
+  const results = q => {
+    const nq = norm(q); if (nq.length < 2) return '<div class="mut xs">Wpisz co najmniej 2 litery (np. „kurczak", „soczewica", „wrap").</div>';
+    const seen = new Set(), all = [];
+    for (const x of optionPool(s, week).concat(S.recipes)) { if (seen.has(x.id) || !x.items.length) continue; seen.add(x.id); if (norm(x.name + ' ' + (x.tags || []).join(' ')).includes(nq)) all.push(x); }
+    return all.slice(0, 24).map(x => { const m = recipeMacros(x), sv = clampServ(tgtK / m.kcal); return `<button class="opt wide" data-pickrid="${x.id}" data-serv="${sv}"><b>${esc(x.name)}</b><span>${r0(m.kcal * sv)} kcal · ${x.slots.map(z => SLOT_PL[z]).join(' / ')}</span></button>`; }).join('') || '<div class="mut xs">Nic nie znalazłem.</div>';
+  };
+  modal(`${fmtDay(d)} · ${SLOT_PL[s]}`, `${r ? `<div class="b" style="font-size:17px">${esc(r.name)}</div><div class="mut xs" id="es_info">${info()}</div>` : '<div class="mut sm">Nic nie zaplanowano na ten posiłek.</div>'}
+    <div class="row wrap" style="margin:10px 0"><button class="sm" data-es="regen">↻ Wylosuj inny</button>${it ? '<button class="sm danger" data-es="clear">Usuń ten posiłek</button>' : ''}</div>
+    ${it && it.eaten ? '' : optsHtml(d, s)}
+    <label>Wyszukaj danie</label><input id="es_q" placeholder="np. kurczak, soczewica, wrap…" autocomplete="off"><div id="es_list" class="olist">${results('')}</div>
+    ${r ? `<h2 style="margin-top:14px">Ten posiłek</h2><div class="row sp" style="margin-bottom:6px"><button class="sm" data-es="smaller">− mniejsza porcja</button><button class="sm" data-es="bigger">większa porcja +</button></div>
+    <label class="row chk"><input type="checkbox" id="s_l" ${it.locked ? 'checked' : ''}> Przypnij (generowanie tygodnia tego nie ruszy)</label>
+    <label class="row chk"><input type="checkbox" id="s_k" ${it.skipped ? 'checked' : ''}> Pomiń ten posiłek (nie wchodzi na listę zakupów)</label>
+    ${days.length > 1 ? `<label class="row chk"><input type="checkbox" id="es_block"> Zastosuj do całego bloku gotowania (${DAYN[wdIdx(days[0])]}–${DAYN[wdIdx(days[days.length - 1])]})</label>` : ''}` : ''}`,
+    r ? [{ label: 'Zapisz', cls: 'pri', fn: () => withUndo(() => { const tdays = ($('#es_block') && $('#es_block').checked) ? days : [d]; for (const x of tdays) { const y = (S.plan[x] || {})[s]; if (!y) continue; y.serv = draft.serv; y.locked = $('#s_l').checked; y.skipped = $('#s_k').checked; } closeModal(); return 'Zapisano zmiany posiłku'; }) }] : []);
+  const m = $('#modal');
+  m.onclick = e => {
+    const pr = e.target.closest('[data-pickrid]'), es = e.target.closest('[data-es]');
+    if (pr) { const rid = pr.dataset.pickrid, sv = +pr.dataset.serv; closeModal(); withUndo(() => { swapMeal(d, s, rid, sv); UI.optSeen && delete UI.optSeen[d + s]; return 'Zmieniono posiłek'; }); return; }
+    if (!es) return; const act = es.dataset.es;
+    if (act === 'regen') { closeModal(); withUndo(() => { const w = regenSlot(d, s); return w.length ? w[0] : 'Wylosowano inny posiłek'; }); }
+    else if (act === 'clear') { closeModal(); withUndo(() => { delete (S.plan[d] || {})[s]; return 'Usunięto posiłek'; }); }
+    else if (act === 'smaller' || act === 'bigger') { draft.serv = clampServ(draft.serv + (act === 'bigger' ? .25 : -.25)); $('#es_info').textContent = info(); }
+  };
+  m.oninput = e => { if (e.target.id === 'es_q') $('#es_list').innerHTML = results(e.target.value); };
 }
 function setEatenReset(it) { for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } }
 
+function basePicker() {
+  const wk = UI.week, sel = new Set(S.bases[wk] || []);
+  const roles = [['p', 'Białko'], ['c', 'Baza węglowodanowa'], ['v', 'Warzywa'], ['x', 'Dodatki (opcjonalne)']];
+  const sec = ([role, title]) => `<h2 style="margin-top:12px">${title}</h2><div class="chips">${Object.keys(COMBO[role]).filter(k => ing(k)).map(k => `<label class="row chk chip"><input type="checkbox" data-base="${k}" ${sel.has(k) ? 'checked' : ''}> ${esc(ing(k).name.replace(/ \(.*\)/, '').toLowerCase())}</label>`).join('')}</div>`;
+  const read = () => $$('[data-base]').filter(x => x.checked).map(x => x.dataset.base);
+  const sum = () => { const ids = new Set(read()), el = $('#bs_sum'); if (!el) return; el.innerHTML = ids.size ? `Wybrane: <b>${ids.size}</b> produktów · możliwych obiadokolacji: <b>${comboPool('dinner', wk, ids, 9999).length}</b> · na uczelnię: <b>${comboPool('lunch', wk, ids, 9999).length}</b>` : 'Nic nie wybrano – użyję wszystkich produktów i przepisów.'; };
+  const set = ids => { const s = new Set(ids); $$('[data-base]').forEach(x => x.checked = s.has(x.dataset.base)); sum(); };
+  modal('Półprodukty na tydzień', `<div class="mut sm">Wybierz kilka produktów (np. 2–3 białka, 2 bazy, 3 warzywa). Dania obiadokolacji i „na uczelnię" ułożę tylko z nich, więc kupujesz mało rzeczy, a dania i tak są różne. Śniadania i inne przepisy bez zmian.</div>
+    <div class="banner sm" id="bs_sum" style="position:sticky;top:0;margin:8px 0"></div>${roles.map(sec).join('')}`,
+    [{ label: 'Zaproponuj zestaw', fn: () => set(suggestBaseSet()) }, { label: 'Wyczyść', fn: () => set([]) },
+    { label: 'Zapisz', fn: () => { S.bases[wk] = read(); save(); closeModal(); render(); } },
+    { label: 'Zapisz i wygeneruj', cls: 'pri', fn: () => { S.bases[wk] = read(); closeModal(); withUndo(() => { const w = generate(wk); return w.length ? w[0] : 'Plan ułożony z wybranych półproduktów'; }); } }]);
+  $('#modal').onchange = sum; sum();
+}
 function menuPicker() {
   const wk = UI.week, sel = new Set(S.menus[wk] || []);
   const groups = [['Śniadania', r => r.slots.includes('breakfast')], ['Na uczelnię (szybkie albo kupne)', r => r.slots.includes('lunch') && !r.slots.includes('breakfast')], ['Obiadokolacje', r => r.slots.includes('dinner')], ['Przekąski', r => r.slots.length === 1 && r.slots[0] === 'snack']];
@@ -509,6 +569,8 @@ function onboarding() {
 const ACTIONS = {
   nav: ds => { UI.view = ds.v; render(); window.scrollTo(0, 0); },
   mclose: closeModal,
+  welcomeOk: () => { S.welcomeSeen = true; save(); render(); },
+  snapRestore: async ds => { const json = await idbGet(ds.k); if (!json) return toast('Nie mogę wczytać tej wersji'); let d; try { d = JSON.parse(json); } catch (e) { return toast('Ta wersja jest uszkodzona'); } withUndo(() => { const rev = S.rev, chat = S.chat; S = d; S.rev = rev; S.chat = S.chat || chat; migrate(); return 'Przywrócono wersję z ' + new Date(+String(ds.k).slice(5)).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }); },
   undo: () => { if (UI.undoFn) { UI.undoFn(); UI.undoFn = null; } },
   hideInstall: () => { try { localStorage.setItem('fuel-hide-install', '1'); } catch (e) { } render(); },
   installApp: async () => { const e = UI.installEvt; if (!e) return; e.prompt(); try { await e.userChoice; } catch (x) { } UI.installEvt = null; render(); },
@@ -528,8 +590,8 @@ const ACTIONS = {
   genDay: ds => withUndo(() => { generate(UI.week, { only: ds.d }); return 'Wylosowano ten dzień'; }),
   clearWeek: () => withUndo(() => { for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(UI.week, i)]; if (dp) for (const s of SLOTS_ALL) if (dp[s] && !dp[s].eaten) delete dp[s]; } return 'Plan wyczyszczony'; }),
   editSlot: ds => editSlot(ds.d, ds.s),
-  swapOpt: ds => { closeModal(); withUndo(() => { swapMeal(ds.d, ds.s, ds.rid, +ds.serv); return 'Zmieniono posiłek'; }); },
-  rotOpt: ds => { UI.rot = UI.rot || {}; UI.rot[ds.d + ds.s] = (UI.rot[ds.d + ds.s] || 0) + 1; if ($('#modal').open) { closeModal(); editSlot(ds.d, ds.s); } else render(); },
+  swapOpt: ds => { closeModal(); withUndo(() => { swapMeal(ds.d, ds.s, ds.rid, +ds.serv); if (UI.optSeen) delete UI.optSeen[ds.d + ds.s]; return 'Zmieniono posiłek'; }); },
+  rotOpt: ds => { const k = ds.d + ds.s; UI.rot = UI.rot || {}; UI.optSeen = UI.optSeen || {}; const rot = UI.rot[k] || 0, seen = UI.optSeen[k] || []; UI.optSeen[k] = seen.concat(optionsFor(ds.d, ds.s, 3, rot, seen).map(x => x.rid)); UI.rot[k] = rot + 1; if ($('#modal').open) { const q = ds.d, w = ds.s; closeModal(); editSlot(q, w); } else render(); },
   applySwap: ds => withUndo(() => { const it = S.plan[ds.d][ds.s]; it.rid = ds.rid; it.serv = +ds.serv; return 'Zamieniono danie'; }),
   ftab: ds => { UI.foodsTab = ds.t; UI.q = ''; render(); },
   ftabFridge: () => { UI.foodsTab = 'fridge'; UI.view = 'foods'; render(); window.scrollTo(0, 0); },
@@ -673,3 +735,6 @@ try { if (navigator.storage && navigator.storage.persist) navigator.storage.pers
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => { });
 
 Object.assign(ACTIONS, SYNC_ACTIONS);
+ACTIONS.basePicker = basePicker;
+
+try { if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then(p => { UI.persisted = p; }); } catch (e) { }

@@ -32,7 +32,7 @@ const UI = { view: 'today', date: today(), week: weekStart(today()), foodsTab: '
 
 function migrate() {
   const d = seedData();
-  for (const k of ['plan', 'log', 'workouts', 'adjust', 'shopChecked', 'menus']) S[k] = S[k] || {};
+  for (const k of ['plan', 'log', 'workouts', 'adjust', 'shopChecked', 'menus', 'bases', 'optSeen']) S[k] = S[k] || {};
   S.chat = S.chat || []; S.ingredients = S.ingredients || []; S.recipes = S.recipes || [];
   S.profile = Object.assign({}, d.profile, S.profile || {});
   if (!S.lastBackup) S.lastBackup = today();
@@ -47,6 +47,16 @@ function migrate() {
     S.seedVersion = SEED_VERSION; setTimeout(() => save(), 0);
   }
 }
+/* ---- durable local storage: localStorage + an IndexedDB mirror + rolling snapshots (so one cleared store never loses your plan) ---- */
+const idbOpen = () => new Promise((res, rej) => { if (!('indexedDB' in window)) return rej(new Error('no idb')); const q = indexedDB.open('fuel', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+async function idbRun(mode, fn) { try { const db = await idbOpen(); const out = await new Promise((res, rej) => { const tx = db.transaction('kv', mode), st = tx.objectStore('kv'); let val; const rq = fn(st); if (rq) rq.onsuccess = () => val = rq.result; tx.oncomplete = () => res(val); tx.onerror = () => rej(tx.error); }); db.close(); return out; } catch (e) { return undefined; } }
+const idbSet = (k, v) => idbRun('readwrite', st => st.put(v, k)), idbGet = k => idbRun('readonly', st => st.get(k)), idbDel = k => idbRun('readwrite', st => st.delete(k)), idbKeys = () => idbRun('readonly', st => st.getAllKeys());
+async function snapshotMaybe(json) {   // at most one snapshot per 30 minutes, keep the 12 newest
+  const now = Date.now(); if (now - (UI.lastSnap || 0) < 30 * 60 * 1000) return; UI.lastSnap = now;
+  await idbSet('snap-' + now, json);
+  const keys = ((await idbKeys()) || []).filter(k => String(k).startsWith('snap-')).sort();
+  for (const k of keys.slice(0, Math.max(0, keys.length - 12))) await idbDel(k);
+}
 /* Two storage modes: with the Fuel server (PC, shared with phone) or standalone in this browser (phone without PC). */
 async function load() {
   let d = null;
@@ -58,6 +68,7 @@ async function load() {
   } catch (e) {
     UI.local = true;
     try { d = JSON.parse(localStorage.getItem('fuel-data') || 'null'); } catch (e2) { d = null; }
+    try { const alt = JSON.parse((await idbGet('data')) || 'null'); if (alt && alt.profile && (!d || !d.profile || (alt.savedAt || 0) > (d.savedAt || 0))) { if (!d || !d.profile) UI.recovered = true; d = alt; } } catch (e3) { }
   }
   S = d && d.profile ? d : Object.assign(seedData(), { rev: (d && d.rev) || 0 });
   migrate();
@@ -65,7 +76,7 @@ async function load() {
 let saveT = null, saving = false, pending = false;
 function save() { UI.dirty = true; clearTimeout(saveT); saveT = setTimeout(doSave, 250); }
 async function doSave() {
-  if (UI.local) { try { localStorage.setItem('fuel-data', JSON.stringify(S)); UI.dirty = false; } catch (e) { toast('Nie można zapisać danych w przeglądarce!'); } if (typeof scheduleSync === 'function') scheduleSync(); return; }
+  if (UI.local) { S.savedAt = Date.now(); const json = JSON.stringify(S); let ok = false; try { localStorage.setItem('fuel-data', json); ok = true; } catch (e) { } idbSet('data', json).then(() => { snapshotMaybe(json); }); UI.dirty = false; UI.savedAt = S.savedAt; if (!ok && !UI.warnedStore) { UI.warnedStore = true; toast('Przeglądarka ogranicza zapis – dane trzymam w zapasowym magazynie'); } if (typeof scheduleSync === 'function') scheduleSync(); return; }
   if (saving) { pending = true; return; }
   saving = true;
   try {
@@ -85,8 +96,9 @@ function restore(snap) { const rev = S.rev; S = JSON.parse(snap); S.rev = rev; m
 const SL = () => S.profile.snack ? ['breakfast', 'snack', 'lunch', 'dinner'] : ['breakfast', 'lunch', 'dinner'];
 const SHARES3 = { breakfast: .28, lunch: .22, dinner: .50 }, SHARES4 = { breakfast: .24, snack: .10, lunch: .20, dinner: .46 };
 const shareOf = s => (S.profile.snack ? SHARES4 : SHARES3)[s] || .25;
-const ing = id => S.ingredients.find(i => i.id === id);
-const rec = id => S.recipes.find(r => r.id === id);
+let _ingSrc = null, _ingMap = null;   // id -> ingredient, rebuilt when the list changes (called thousands of times by the planner)
+const ing = id => { if (_ingSrc !== S.ingredients || _ingMap.size !== S.ingredients.length) { _ingSrc = S.ingredients; _ingMap = new Map(S.ingredients.map(i => [i.id, i])); } return _ingMap.get(id); };
+const rec = id => (typeof isCombo === 'function' && isCombo(id)) ? comboRec(id) : S.recipes.find(r => r.id === id);
 const ZERO = () => ({ kcal: 0, p: 0, c: 0, f: 0 });
 function addM(a, b, k = 1) { a.kcal += b.kcal * k; a.p += b.p * k; a.c += b.c * k; a.f += b.f * k; return a; }
 function ingMacros(i, amt) { const f = i.unit === 'pcs' ? amt : amt / 100; return { kcal: i.kcal * f, p: i.p * f, c: i.c * f, f: i.f * f }; }
@@ -143,7 +155,7 @@ const LIFE_AISLE = { 'Mięso i ryby': 3, 'Warzywa i owoce': 7, 'Pieczywo': 4, 'N
 const LIFE_ID = { gehakt: 2, kipgehakt: 2, kalkoengehakt: 2, zalm: 2, kip: 3, kipdij: 3, kalkoen: 3, makreel: 4, spinazie: 4, rucola: 3, avocado: 4, banaan: 6, champ: 5, broccoli: 6, bloemkool: 6,
   komkommer: 6, tomaat: 6, paprika: 8, wortel: 20, ui: 30, aardappel: 30, zoete: 21, butternut: 21, appel: 14, peer: 7, kiwi: 10, prei: 10, spruit: 8, courgette: 8, aubergine: 7,
   eieren: 21, kaas: 21, feta: 14, mozz: 5, tofu: 6, tempeh: 7, kwark: 7, skyr: 8, hutten: 7, griek: 8, melk: 6, karnemelk: 6, brood: 4, roggebrood: 7, wrap: 10, bosbes: 5,
-  kup_kanapka: 2, kup_wrap: 3, kup_salade: 3 };
+  kup_kanapka: 2, kup_wrap: 3, kup_salade: 3, zuurkool: 30, hummus: 10, pastinaak: 14, rodekool: 20 };
 const lifeOf = i => (i.life != null && i.life !== '' && !isNaN(+i.life)) ? +i.life : (LIFE_ID[i.id] ?? LIFE_AISLE[i.aisle] ?? 999);
 const tripOf = di => ((S.profile.shopTrips | 0) >= 2 && di >= (S.profile.trip2Day ?? 3)) ? 1 : 0;
 const SPOIL = .8, GAP = .12, PANTRY_EXP = .6;
@@ -176,9 +188,20 @@ const niceQty = (a, u) => u === 'pcs' ? (a <= 3 ? Math.ceil(a * 2 - 1e-9) / 2 : 
 const cookQty = (a, u) => u === 'pcs' ? (a < 3 ? Math.round(a * 2) / 2 : Math.round(a)) : (a < 20 ? Math.round(a) : a < 200 ? Math.round(a / 5) * 5 : Math.round(a / 10) * 10);
 const basketAll = need => { const a = basketOf(need[0]); if ((S.profile.shopTrips | 0) < 2) return a; const b = basketOf(need[1]); return { cost: a.cost + b.cost, distinct: a.distinct + b.distinct, waste: a.waste + b.waste }; };   // one basket per shopping trip
 const clampServ = x => Math.min(3, Math.max(.5, Math.round(x * 4) / 4));
+const baseSetOf = week => { const b = S.bases && S.bases[week]; return b && b.length ? new Set(b) : null; };
+/* every dish that may be offered for a slot: your recipes + dishes assembled from base products.
+   With a chosen base set only dishes made of those products (plus staples and what is already at home) are offered. */
+function optionPool(slot, week, ignoreSet = false) {
+  const set = ignoreSet ? null : baseSetOf(week), style = S.profile.mealStyle || 'mix';
+  let pool = S.recipes.filter(r => r.slots.includes(slot) && r.items.length && recipeMacros(r).kcal > 0 && (!S.profile.clean || isClean(r) || (r.tags || []).includes('kupne')));
+  if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || ((ing(x.ing) || {}).pantry || 0) > 0));
+  if (style === 'combos') pool = pool.filter(r => (r.tags || []).includes('kupne'));
+  const combos = style === 'recipes' ? [] : comboPool(slot, week, set);
+  return pool.concat(combos);
+}
 function candidates(slot, week) {
-  let c = S.recipes.filter(r => r.slots.includes(slot) && r.items.length && recipeMacros(r).kcal > 0);
-  if (S.profile.clean) c = c.filter(r => isClean(r) || (r.tags || []).includes('kupne'));   // ready-made shop food is allowed on purpose
+  let c = optionPool(slot, week);
+  if (!c.length && baseSetOf(week)) c = optionPool(slot, week, true);          // the chosen base set cannot make this meal: do not leave it empty
   const menu = S.menus[week] || [], m = c.filter(r => menu.includes(r.id));
   return m.length ? m : c;
 }
@@ -221,15 +244,16 @@ function generate(week, opts = {}) {
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
   const baseNeed = [{}, {}];
   for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
+  const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
   const pantryExp = S.ingredients.filter(i => (i.pantry || 0) > 0 && i.pantryExp && i.pantryExp <= addDays(week, 6));
-  const meatPref = ({ less: -.15, normal: .12, more: .3 })[S.profile.meatPref || 'normal'], hmc = {}, hasMeat = r => (r.id in hmc ? hmc[r.id] : (hmc[r.id] = r.items.some(x => ing(x.ing) && ing(x.ing).aisle === 'Mięso i ryby')));
+  const meatPref = ({ less: -.15, normal: .22, more: .4 })[S.profile.meatPref || 'normal'], hmc = {}, hasMeat = r => (r.id in hmc ? hmc[r.id] : (hmc[r.id] = r.items.some(x => ing(x.ing) && ing(x.ing).aisle === 'Mięso i ryby')));
   const blockList = [];
   for (const s of bslots) for (const bl of blocks[s]) blockList.push({ s, days: bl });
   const evalAssign = assign => {
     const pick = {}, cnt = {}; let sc = 0;
     blockList.forEach((bl, k) => {
-      const r = assign[k], m = recipeMacros(r);
+      const r = assign[k], m = rm(r);
       let f = 0; for (const d of bl.days) { const c2 = ctx[d]; f += c2.kLeft * shareOf(bl.s) / c2.shareSum / m.kcal; }
       const sv = clampServ(f / bl.days.length);               // one portion size for the whole cooking session
       for (const d of bl.days) (pick[d] = pick[d] || {})[bl.s] = { r, sv };
@@ -244,7 +268,7 @@ function generate(week, opts = {}) {
       const c2 = ctx[d], tot = ZERO(), pk = pick[d] || {}, di = wdIdx(d);
       for (const s of c2.free) {
         const p = pk[s]; if (!p) continue;
-        addM(tot, recipeMacros(p.r), p.sv);
+        addM(tot, rm(p.r), p.sv);
         for (const x of p.r.items) { const nt = need[tripOf(di)]; nt[x.ing] = (nt[x.ing] || 0) + x.amt * p.sv; if (lifeC(x.ing) < 8) { const key = x.ing + '|' + tripOf(di); (usage[key] = usage[key] || new Set()).add(di); } }
       }
       sc += Math.abs(tot.kcal - c2.kLeft) / Math.max(c2.kLeft, 1) * 3 + Math.max(0, c2.pLeft - tot.p) / Math.max(c2.pLeft, 1) * 4;
@@ -474,7 +498,8 @@ const daysLeft = i => i.pantryExp ? Math.round((parseD(i.pantryExp) - parseD(tod
 /* ideas: dishes you can (almost) make from what you have – soonest-expiring food first */
 function pantryIdeas(n = 8) {
   const have = pantryItems(); if (!have.length) return [];
-  return S.recipes.filter(r => r.items.length && !r.slots.every(s => s === 'snack')).map(r => {
+  const wk = weekStart(today());
+  return S.recipes.concat(comboPool('dinner', wk, null, 160), comboPool('lunch', wk, null, 80)).filter(r => r.items.length && !r.slots.every(s => s === 'snack')).map(r => {
     const serv = 1, cover = pantryCover(r, serv);
     const missing = r.items.filter(x => { const i = ing(x.ing); return i && (i.pantry || 0) < x.amt * serv * .8; }).map(x => ing(x.ing).name);
     let urgent = 0; for (const x of r.items) { const i = ing(x.ing), dl = i && daysLeft(i); if (dl != null && (i.pantry || 0) > 0 && dl <= 4) urgent += 1; }
@@ -485,28 +510,54 @@ function pantryIdeas(n = 8) {
 /* ============ meal options (rotating alternatives for a slot) ============ */
 function hashStr(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 function seededRand(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-/* Alternatives to what is planned: similar calories, not recently eaten, using what is already in the fridge and in this week's basket. Stable per day (changes when `rot` is bumped). */
-function optionsFor(d, s, n = 3, rot = 0) {
+/* Alternatives to what is planned: similar calories, different main ingredients, using what is at home and what is
+   already in this week's basket. `seen` = options you already looked at: each refresh shows NEW ones until the pool is used up. */
+function optionsFor(d, s, n = 3, rot = 0, seen = []) {
   const cur = (S.plan[d] || {})[s], week = weekStart(d);
   const tgtK = cur && live(cur) ? itemMacros(cur).kcal : targets(d).kcal * shareOf(s);
-  const use = {}, recent = {};
+  const use = {}, recent = {}, have = new Set();
   for (let i = 0; i < 7; i++) {
     const dd = addDays(week, i), dp = S.plan[dd] || {};
-    for (const sl of SL()) if (live(dp[sl])) { use[dp[sl].rid] = (use[dp[sl].rid] || 0) + 1; if (sl === s && Math.abs(i - wdIdx(d)) <= 2) recent[dp[sl].rid] = 1; }
+    for (const sl of SL()) if (live(dp[sl])) { const r = rec(dp[sl].rid); use[dp[sl].rid] = (use[dp[sl].rid] || 0) + 1; if (sl === s && Math.abs(i - wdIdx(d)) <= 2) recent[dp[sl].rid] = 1; r.items.forEach(x => have.add(x.ing)); }
   }
-  const have = new Set();
-  for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const sl of SL()) if (live(dp[sl])) rec(dp[sl].rid).items.forEach(x => have.add(x.ing)); }
-  const W = varietyW(), rnd = seededRand(hashStr(d + s + rot));
-  const pool = S.recipes.filter(r => r.slots.includes(s) && r.items.length && (!cur || r.id !== cur.rid) && (!S.profile.clean || isClean(r) || (r.tags || []).includes('kupne')));
-  const scored = pool.map(r => {
+  const W = varietyW(), rnd = seededRand(hashStr(d + s + rot)), seenSet = new Set(seen);
+  const scored = optionPool(s, week).filter(r => !cur || r.id !== cur.rid).map(r => {
     const m = recipeMacros(r); if (m.kcal <= 0) return null;
-    const serv = clampServ(tgtK / m.kcal), got = m.kcal * serv, nw = r.items.filter(x => !have.has(x.ing)).length, cover = pantryCover(r, serv);
-    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, sc: Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .7 + bigPen(serv) + nw * W.distinct * 2.5 - cover * 1.4 };
-  }).filter(Boolean).sort((a, b) => a.sc - b.sc);
-  return scored.slice(0, n);
+    const serv = clampServ(tgtK / m.kcal), got = m.kcal * serv, nw = r.items.filter(x => !have.has(x.ing) && !COMBO_STAPLES.has(x.ing)).length, cover = pantryCover(r, serv);
+    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, key: comboKey(r), sc: Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
+  }).filter(Boolean);
+  let fresh = scored.filter(o => !seenSet.has(o.rid));
+  if (fresh.length < n) fresh = scored;                                   // everything seen: start again
+  fresh.sort((a, b) => a.sc - b.sc);
+  const out = [], keys = new Set();
+  for (const o of fresh) { if (out.length >= n) break; if (keys.has(o.key) && fresh.length > n * 4) continue; out.push(o); keys.add(o.key); }   // different main ingredient each
+  for (const o of fresh) { if (out.length >= n) break; if (!out.includes(o)) out.push(o); }
+  return out;
 }
 function swapMeal(d, s, rid, serv) { const dp = S.plan[d] || (S.plan[d] = {}); dp[s] = { rid, serv, locked: true }; }
 
 /* ============ shopping list for Reminders / notes apps ============ */
 const remLine = r => `${r.i.nl || r.i.name} – ${fmtAmt(r.exact, r.i.unit)}${r.packs ? ' (' + packNote(r) + ')' : ''}${r.i.nl ? ' · ' + r.i.name : ''}`;
 const remindersText = week => { const nT = (S.profile.shopTrips | 0) >= 2 ? 2 : 1; return shopSorted(shopList(week, nT === 2 ? (week <= today() && addDays(week, 6) >= today() && wdIdx(today()) >= (S.profile.trip2Day ?? 3) ? 1 : 0) : null)).map(remLine).join('\n'); };
+
+/* ============ base-product sets ("półprodukty na tydzień") ============ */
+/* Pick the set of products (about 8–12) that feeds the whole week most cheaply: whole packs, little waste, few products. */
+function suggestBaseSet(tries = 500) {
+  const D = comboParts('dinner', null), L = comboParts('lunch', null);
+  const pick = (arr, n, prefer) => { const pool = arr.slice(), out = []; while (out.length < n && pool.length) { const pr = prefer && prefer.filter(x => pool.includes(x)); const src = pr && pr.length && Math.random() < .7 ? pr : pool; const x = src[Math.floor(Math.random() * src.length)]; out.push(x); pool.splice(pool.indexOf(x), 1); } return out; };
+  const rint = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+  let best = null;
+  for (let t = 0; t < tries; t++) {
+    const dp = pick(D.p, rint(2, 3)), dc = pick(D.c, 2), dv = pick(D.v, 3), x = pick(D.x, rint(1, 2));
+    const lp = pick(L.p, rint(1, 2), dp), lc = pick(L.c, rint(1, 2), dc), lv = pick(L.v, rint(1, 2), dv);
+    const need = {}, add = (id, a) => need[id] = (need[id] || 0) + a;
+    for (let i = 0; i < 7; i++) { const P = COMBO.p[dp[i % dp.length]], C = COMBO.c[dc[i % dc.length]], V = COMBO.v[dv[i % dv.length]]; add(dp[i % dp.length], P.amt * 2.5); add(dc[i % dc.length], C.amt * 2.5); add(dv[i % dv.length], V.amt * 2.5); add('olijf', 15); if (x.length && i % 2 === 0) add(x[i % x.length], COMBO.x[x[i % x.length]].amt * 2.5);
+      const lP = COMBO.p[lp[i % lp.length]], lC = COMBO.c[lc[i % lc.length]], lV = COMBO.v[lv[i % lv.length]]; add(lp[i % lp.length], lP.amt * 1.1); add(lc[i % lc.length], lC.amt * 1.1); add(lv[i % lv.length], lV.amt * 1.1); }
+    const sh = basketOf(need);
+    let pen = 0; for (const id of dp) { const i = ing(id); if (i && lifeOf(i) < 5 && 7 / dp.length > lifeOf(i)) pen += .5; }
+    let sc = sh.cost * .02 + sh.waste * .75 + sh.distinct * .08 + pen;
+    if (!dp.some(id => ing(id) && ing(id).aisle === 'Mięso i ryby')) sc += ({ less: 0, normal: .6, more: 1.2 })[S.profile.meatPref || 'normal'];   // respect the meat preference
+    if (!best || sc < best.sc) best = { sc, ids: [...new Set([...dp, ...dc, ...dv, ...x, ...lp, ...lc, ...lv])] };
+  }
+  return best ? best.ids : [];
+}

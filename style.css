@@ -115,3 +115,6 @@ button,a,label,input,select,summary{touch-action:manipulation}
 .shop .r{min-width:62px}.shop .b{font-variant-numeric:tabular-nums}
 
 .savebar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--acc2);border-radius:var(--r);padding:10px 14px;margin:0 0 12px}.savebar .xs{line-height:1.35}.savebar button{flex:none}
+
+.chips label.chip{padding:5px 11px;border:1px solid var(--line);border-radius:9px;margin:0;font-size:13.5px;gap:7px}.chips label.chip input{width:18px;height:18px}
+.opt.wide{width:100%;flex:none;margin:4px 0}.olist{max-height:240px;overflow:auto;margin-top:6px}

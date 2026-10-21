@@ -4,7 +4,7 @@
    proc: 0 = unprocessed, 1 = lightly processed (bread, canned, cheese), 2 = highly processed / added sugar / supplement. */
 const AISLES = ['Warzywa i owoce', 'Pieczywo', 'Mięso i ryby', 'Nabiał i jajka', 'Produkty suche', 'Mrożonki', 'Napoje', 'Suplementy', 'Gotowe', 'Inne'];
 
-const SEED_VERSION = 5;
+const SEED_VERSION = 6;
 
 function seedData() {
   const A = AISLES;
@@ -65,6 +65,8 @@ function seedData() {
   ];
   const extra = seedExtras(A);
   rows.push(...extra.rows);
+  const extra2 = seedExtras2(A);
+  rows.push(...extra2.rows);
   const ingredients = rows.map(([key, name, nl, unit, kcal, p, c, f, aisle, pack, price, proc]) =>
     ({ id: key, name, nl, unit, kcal, p, c, f, aisle, pack, price, proc, pantry: 0, starter: true }));
   const has = new Set(ingredients.map(i => i.id));
@@ -115,6 +117,7 @@ function seedData() {
     R('Jajka na twardo z ogórkiem', ['snack'], ['do zabrania', 'bez cukru'], 'Ugotuj kilka jajek na zapas.', 'Ugotuj jajka na twardo', [['eieren', 3], ['komkommer', 100]]),
   ];
   for (const x of extra.recipes) recipes.push(R(...x));
+  for (const x of extra2.recipes) recipes.push(R(...x));
   for (const r of recipes) { const st = RECIPE_STEPS[r.name]; if (st) r.how = st.join('\n'); }
   /* Two real meals a day: breakfast (shake) and a big cooked "obiadokolacja"; in between something to take to uni
      (quick to make with the breakfast, or ready-made from a shop). Cooked mains became dinner-only and get bigger portions. */
@@ -132,7 +135,7 @@ function seedData() {
     profile: {
       weight: 75, height: 180, age: 22, sex: 'm', bodyFat: 15, activity: 1.5, surplus: 7,
       proteinPerKg: 1.8, fatPct: 25, trainDelta: 250, trainDays: [0, 2, 4],
-      budget: 90, packFit: 'strong', meatPref: 'normal', shopTrips: 1, trip2Day: 3, store: 'Lidl', snack: false, clean: true, prepDays: 3, cheatCap: 12, aiOn: true,
+      budget: 90, packFit: 'strong', mealStyle: 'mix', meatPref: 'normal', shopTrips: 1, trip2Day: 3, store: 'Lidl', snack: false, clean: true, prepDays: 3, cheatCap: 12, aiOn: true,
     },
     ingredients, recipes, plan: {}, menus: {}, log: {}, workouts: {}, adjust: {}, shopChecked: {}, chat: [],
   };
