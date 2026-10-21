@@ -65,13 +65,13 @@ async function load() {
 let saveT = null, saving = false, pending = false;
 function save() { UI.dirty = true; clearTimeout(saveT); saveT = setTimeout(doSave, 250); }
 async function doSave() {
-  if (UI.local) { try { localStorage.setItem('fuel-data', JSON.stringify(S)); UI.dirty = false; } catch (e) { toast('Nie można zapisać danych w przeglądarce!'); } return; }
+  if (UI.local) { try { localStorage.setItem('fuel-data', JSON.stringify(S)); UI.dirty = false; } catch (e) { toast('Nie można zapisać danych w przeglądarce!'); } if (typeof scheduleSync === 'function') scheduleSync(); return; }
   if (saving) { pending = true; return; }
   saving = true;
   try {
     const r = await fetch('/api/data', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S) });
     if (r.status === 409) { await load(); UI.dirty = false; toast('Dane zmieniono na innym urządzeniu – odświeżono. Powtórz ostatnią zmianę.'); render(); }
-    else { S.rev = (await r.json()).rev; UI.dirty = false; }
+    else { S.rev = (await r.json()).rev; UI.dirty = false; if (typeof scheduleSync === 'function') scheduleSync(); }
   } catch (e) { toast('Brak połączenia z serwerem Fuel – zmiany NIE zapisane!'); }
   saving = false;
   if (pending) { pending = false; doSave(); }

@@ -288,6 +288,7 @@ function viewMe() {
   h += `<div class="card"><h2>Telefon</h2><div class="row" style="align-items:flex-start;gap:16px"><div class="qr">${qr}</div><div class="grow sm">${phoneUrl ? `Zeskanuj kod aparatem telefonu albo wpisz w przeglądarce:<div class="code">${esc(phoneUrl)}</div>` : 'Nie wykryłem adresu komputera w sieci.'}
     <ol class="xs mut" style="padding-left:18px;margin:6px 0 0"><li>Telefon i komputer w tej samej sieci Wi-Fi, a Fuel uruchomiony (start.bat).</li><li>Jeśli się nie otwiera: uruchom <b>allow-phone.bat</b> (jednorazowo) i ustaw sieć Wi-Fi jako „prywatną".</li><li>W przeglądarce telefonu: „Dodaj do ekranu głównego" – wtedy działa jak aplikacja.</li><li>Poza domem: zainstaluj darmowy <b>Tailscale</b> na komputerze i telefonie i otwórz Fuel pod adresem komputera z Tailscale (100.x.x.x:8780) – asystent Claude też wtedy działa.</li></ol></div></div></div>`;
   }
+  h += syncCard();
   h += `<div class="card"><h2>Asystent Claude</h2>${cfg.mode === 'api' ? `<div class="sm">Używa klucza API (${esc(cfg.hint)}), model <b>${esc(cfg.model)}</b>.</div>` : cfg.mode === 'cli' ? '<div class="sm">Połączony z Twoim kontem Claude przez Claude Code – bez klucza API.</div>' : '<div class="sm mut">Niepołączony – przejdź do zakładki Asystent.</div>'}</div>`;
   h += `<div class="card"><h2>Dane</h2><div class="row wrap"><button data-act="export">Pobierz kopię</button><button data-act="import">Przywróć kopię</button><input type="file" id="bk" accept=".json" hidden></div>
     <div class="mut xs" style="margin-top:8px">${UI.local ? 'Dane są zapisane tylko w tej przeglądarce, na tym urządzeniu. Pobieraj kopię co jakiś czas i zawsze przed czyszczeniem danych przeglądarki.' : 'Wszystko jest w <code>data.json</code> na komputerze (codzienne kopie w <code>backups/</code>). Telefon i komputer korzystają z tych samych danych przez serwer.'}</div></div>`;
@@ -314,7 +315,7 @@ function modal(title, body, buttons = []) {
   modal.btns = buttons;
   if (!m.open) m.showModal();
 }
-const closeModal = () => { const m = $('#modal'); if (m.open) m.close(); };
+const closeModal = () => { const m = $('#modal'); if (m.open) m.close(); if (UI.needRender) { UI.needRender = false; render(); } };
 const val = id => $('#' + id)?.value;
 
 /* ============ editors ============ */
@@ -650,7 +651,9 @@ function handleQuery() { // https://…/?workout=Push&sets=18  (from a phone sho
   logWorkout(q.get('date') || today(), { name: q.get('workout') || 'Trening', sets: +q.get('sets') || undefined, min: +q.get('minutes') || undefined, source: 'link' });
   history.replaceState(null, '', location.pathname); save(); toast('Trening zapisany');
 }
-load().then(() => { UI.cfg = UI.cfg || {}; handleQuery(); render(); if (!S.profileSet) setTimeout(onboarding, 350); if (!S.rev && !S.setupDone) { S.setupDone = true; save(); } loadCfg().then(() => { if (UI.view === 'ai' || UI.view === 'me') render(); }); })
+load().then(() => { UI.cfg = UI.cfg || {}; handleQuery(); render(); initSync(); if (!S.profileSet) setTimeout(onboarding, 350); if (!S.rev && !S.setupDone) { S.setupDone = true; save(); } loadCfg().then(() => { if (UI.view === 'ai' || UI.view === 'me') render(); }); })
   .catch(e => { $('#app').innerHTML = '<div class="card">Coś poszło nie tak przy starcie: ' + esc(e && e.message) + '</div>'; });
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => { });
+
+Object.assign(ACTIONS, SYNC_ACTIONS);
