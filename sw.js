@@ -1,5 +1,5 @@
-const V = 'fuel-20261021220746';
-const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'data.js', 'data_more.js', 'data_more2.js', 'data_steps.js', 'data_combo.js', 'ai.js', 'sync.js', 'ui.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const V = 'fuel-20261025012234';
+const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'data.js', 'data_more.js', 'data_more2.js', 'data_more3.js', 'data_steps.js', 'data_combo.js', 'ai.js', 'sync.js', 'ui.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 // network first (always fresh when online), cache as the offline fallback; API calls are never cached

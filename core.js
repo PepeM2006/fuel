@@ -28,7 +28,9 @@ const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ
 
 /* ============ state & persistence ============ */
 let S;
-const UI = { view: 'today', date: today(), week: weekStart(today()), foodsTab: 'rec', q: '', slotFilter: '', dirty: false, aiBusy: false };
+/* from Saturday on, the "current" planning week is the NEXT one (you shop at the weekend for the coming week) */
+const planWeekDefault = () => { const t = today(); return wdIdx(t) >= 5 ? addDays(weekStart(t), 7) : weekStart(t); };
+const UI = { view: 'today', date: today(), week: planWeekDefault(), foodsTab: 'rec', q: '', slotFilter: '', dirty: false, aiBusy: false };
 
 function migrate() {
   const d = seedData();

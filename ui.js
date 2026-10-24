@@ -28,6 +28,10 @@ function viewToday() {
   if (UI.local && isMobile && !standalone && !hide && !S.starter && bdays < 7) h += `<div class="banner sm"><b>Zrób z tego aplikację.</b> ${isIOS ? 'W Safari dotknij „Udostępnij" → „Do ekranu początkowego".' : UI.installEvt ? 'Dodaj Fuel do ekranu głównego, żeby działał jak zwykła aplikacja, także offline.' : 'W menu przeglądarki (⋮) wybierz „Zainstaluj aplikację" lub „Dodaj do ekranu głównego".'}<div class="row wrap" style="margin-top:8px">${UI.installEvt ? '<button class="pri sm" data-act="installApp">Zainstaluj</button>' : ''}<button class="sm" data-act="hideInstall">Nie teraz</button></div></div>`;
   if (UI.local && bdays >= 7 && !S.starter) h += `<div class="warnbox">Ostatnia kopia zapasowa: ${bdays} dni temu. Dane są tylko na tym telefonie – <button class="sm" data-act="export">Pobierz kopię</button></div>`;
   h += `<div class="top"><div><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isToday ? 'Dziś' : esc(DAYFULL[wdIdx(d)])}</h1></div><div class="row"><button class="icon" aria-label="Poprzedni dzień" data-act="day" data-n="-1">‹</button>${isToday ? '' : '<button class="sm" data-act="dayToday">Dziś</button>'}<button class="icon" aria-label="Następny dzień" data-act="day" data-n="1">›</button></div></div>`;
+  if (isToday && wdIdx(d) >= 4) {   // Friday–Sunday: plan and shop for the coming week
+    const nxt = addDays(weekStart(today()), 7), hasNext = Array.from({ length: 7 }, (_, k) => (S.plan[addDays(nxt, k)] || {})).some(dp => SL().some(s => dp[s]));
+    h += `<div class="banner sm"><b>${hasNext ? 'Przyszły tydzień jest zaplanowany.' : 'Czas zaplanować przyszły tydzień.'}</b> ${hasNext ? 'Sprawdź listę zakupów i idź na zakupy.' : 'Ułóż menu i listę zakupów z wyprzedzeniem – zakupy zrobisz już dziś.'}<div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="planNext">${hasNext ? 'Zobacz plan' : 'Zaplanuj przyszły tydzień'}</button><button class="sm" data-act="shopNext">Lista zakupów</button></div></div>`;
+  }
   const fmt = n => r0(n).toLocaleString('pl-PL'), over = remain < -150;
   let L = '', Rt = '';
   L += `<div class="card main"><div class="row sp" style="align-items:flex-end;gap:12px"><div><div class="num ${over ? 'over' : ''}">${fmt(Math.abs(remain))}</div><div class="lab">${remain >= 0 ? 'kcal do celu na dziś' : 'kcal ponad cel'}</div></div><button class="${train ? 'on' : ''}" data-act="toggleTrain">${train ? 'Dzień treningowy' : 'Dzień wolny'}</button></div>
@@ -70,9 +74,15 @@ function saveBar() {   // nothing to press: everything is remembered automatical
   const t = UI.savedAt || S.savedAt, when = t ? new Date(t).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '';
   return `<div class="savebar"><div class="xs mut">✓ Pamiętam wszystko, co ustawiłeś – zapisuje się samo${UI.local ? ' na tym telefonie' : ' na komputerze'}${when ? ' (' + when + ')' : ''}. Pomyłkę cofniesz przyciskiem „Cofnij".</div></div>`;
 }
+function weekSwitch() {   // always visible: this week / next week
+  const cur = weekStart(today()), nxt = addDays(cur, 7), w = UI.week;
+  const lab = s => { const a = parseD(s), b = parseD(addDays(s, 6)); return `${a.getDate()}.${pad(a.getMonth() + 1)}–${b.getDate()}.${pad(b.getMonth() + 1)}`; };
+  return `<div class="seg" style="margin:0 0 12px"><button class="${w === cur ? 'sel' : ''}" data-act="weekSet" data-w="${cur}">Ten tydzień · ${lab(cur)}</button><button class="${w === nxt ? 'sel' : ''}" data-act="weekSet" data-w="${nxt}">Następny · ${lab(nxt)}</button></div>`;
+}
 function viewPlan() {
   const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0 }, menu = S.menus[wk] || [];
   let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
+  h += weekSwitch();
   h += saveBar();
   h += `<div class="card"><div class="row wrap"><button class="pri" data-act="menuPicker">Wybierz dania na tydzień</button><button data-act="basePicker">Półprodukty na tydzień</button><button data-act="gen">Wygeneruj tydzień</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost danger" data-act="clearWeek">Wyczyść</button></div>
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Nie wybrałeś menu – generator użyje wszystkich przepisów. Wybierz dania, a lista zakupów powstanie z nich.'}</div>
@@ -138,6 +148,7 @@ function shopRow(r, chk) {
 function viewShop() {
   const wk = UI.week, nT = (S.profile.shopTrips | 0) >= 2 ? 2 : 1, chk = S.shopChecked[wk] || (S.shopChecked[wk] = {});
   let h = `<div class="top"><div><div class="eyebrow">${esc(S.profile.store)} · tydzień od ${esc(fmtDay(wk))}</div><h1>Lista zakupów</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
+  h += weekSwitch();
   const all = shopList(wk), buy = shopSorted(all), covered = all.filter(r => r.buy <= .01);
   if (!all.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
   const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id + '|' + r.trip]).length;
@@ -617,6 +628,9 @@ function onboarding() {
 const ACTIONS = {
   nav: ds => { UI.view = ds.v; render(); window.scrollTo(0, 0); },
   mclose: closeModal,
+  weekSet: ds => { UI.week = ds.w; render(); },
+  planNext: () => { UI.week = addDays(weekStart(today()), 7); UI.view = 'plan'; render(); window.scrollTo(0, 0); },
+  shopNext: () => { UI.week = addDays(weekStart(today()), 7); UI.view = 'shop'; render(); window.scrollTo(0, 0); },
   delRec: ds => withUndo(() => { const x = removeRecipe(ds.id); return `Usunięto: ${x ? x.name : 'przepis'}`; }),
   welcomeOk: () => { S.welcomeSeen = true; save(); render(); },
   snapRestore: async ds => { const json = await idbGet(ds.k); if (!json) return toast('Nie mogę wczytać tej wersji'); let d; try { d = JSON.parse(json); } catch (e) { return toast('Ta wersja jest uszkodzona'); } withUndo(() => { const rev = S.rev, chat = S.chat; S = d; S.rev = rev; S.chat = S.chat || chat; migrate(); return 'Przywrócono wersję z ' + new Date(+String(ds.k).slice(5)).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }); },
