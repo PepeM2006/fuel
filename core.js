@@ -48,6 +48,7 @@ function migrate() {
     for (const sr of d.recipes) { const x = S.recipes.find(y => y.name === sr.name && y.starter); if (x) { x.slots = sr.slots; x.items = sr.items; x.tags = sr.tags; x.how = sr.how || x.how; x.prep = sr.prep; x.big = sr.big; } } // refresh untouched starter recipes (edited ones lose the starter flag and are kept)
     S.seedVersion = SEED_VERSION; setTimeout(() => save(), 0);
   }
+  if (typeof comboRec === 'function' && S.plan && fixPlanSlots()) setTimeout(() => save(), 0);
 }
 /* ---- durable local storage: localStorage + an IndexedDB mirror + rolling snapshots (so one cleared store never loses your plan) ---- */
 const idbOpen = () => new Promise((res, rej) => { if (!('indexedDB' in window)) return rej(new Error('no idb')); const q = indexedDB.open('fuel', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
@@ -58,6 +59,25 @@ async function snapshotMaybe(json) {   // at most one snapshot per 30 minutes, k
   await idbSet('snap-' + now, json);
   const keys = ((await idbKeys()) || []).filter(k => String(k).startsWith('snap-')).sort();
   for (const k of keys.slice(0, Math.max(0, keys.length - 12))) await idbDel(k);
+}
+/* A plan made with an older version may hold dishes that break the rules (a chicken dish at breakfast, a milk-based lunch):
+   remove such dishes from days that are still ahead (never eaten or pinned ones) and let the planner refill them. */
+function fixPlanSlots() {
+  const t = today(), weeks = new Set();
+  for (const [d, dp] of Object.entries(S.plan || {})) {
+    if (d < t) continue;
+    for (const s of SLOTS_ALL) {
+      const it = dp[s]; if (!it || it.eaten || it.locked) continue;
+      const r = rec(it.rid); let bad = !r;
+      if (r && isCombo(it.rid) && s !== 'lunch' && s !== 'dinner') bad = true;
+      if (r && !isCombo(it.rid) && !r.slots.includes(s)) bad = true;
+      if (r && s === 'lunch' && S.profile.noSpill !== false && spillable(r)) bad = true;
+      if (r && s === 'breakfast' && S.profile.breakfastQuick !== false && !quickBreakfast(r)) bad = true;
+      if (bad) { delete dp[s]; weeks.add(weekStart(d)); }
+    }
+  }
+  for (const w of weeks) { try { generate(w, { keep: true }); } catch (e) { } }
+  return weeks.size;
 }
 /* Two storage modes: with the Fuel server (PC, shared with phone) or standalone in this browser (phone without PC). */
 async function load() {
@@ -193,12 +213,25 @@ const clampServ = x => Math.min(3, Math.max(.5, Math.round(x * 4) / 4));
 const baseSetOf = week => { const b = S.bases && S.bases[week]; return b && b.length ? new Set(b) : null; };
 /* every dish that may be offered for a slot: your recipes + dishes assembled from base products.
    With a chosen base set only dishes made of those products (plus staples and what is already at home) are offered. */
+/* "might spill in a bag": shakes, anything with a cup of milk, big yoghurt/skyr bowls */
+const SPILL_LIQ = new Set(['melk', 'karnemelk', 'kokosmelk']), SPILL_DAIRY = new Set(['skyr', 'griek', 'kwark']);
+function spillable(r) {
+  if ((r.tags || []).some(t => t === 'shake' || t === 'płynne')) return true;
+  let liq = 0, dairy = 0; for (const x of r.items) { if (SPILL_LIQ.has(x.ing)) liq += x.amt; if (SPILL_DAIRY.has(x.ing)) dairy += x.amt; }
+  return liq >= 100 || dairy >= 250;
+}
+const quickBreakfast = r => !(r.tags || []).length || (r.tags || []).some(t => t === 'shake' || t === 'szybkie' || t === 'bez gotowania' || t === 'do zabrania');
+/* every dish that may be offered for a slot: your recipes + dishes assembled from base products (only for lunch and dinner).
+   Rules: breakfast = a shake or something quick; "na uczelnię" = nothing that can spill. With a chosen base set only dishes
+   made of those products (plus staples and what is already at home) are offered. */
 function optionPool(slot, week, ignoreSet = false) {
   const set = ignoreSet ? null : baseSetOf(week), style = S.profile.mealStyle || 'mix';
   let pool = S.recipes.filter(r => r.slots.includes(slot) && r.items.length && recipeMacros(r).kcal > 0 && (!S.profile.clean || isClean(r) || (r.tags || []).includes('kupne')));
+  if (slot === 'breakfast' && S.profile.breakfastQuick !== false) { const q = pool.filter(quickBreakfast); if (q.length) pool = q; }
+  if (slot === 'lunch' && S.profile.noSpill !== false) { const q = pool.filter(r => !spillable(r)); if (q.length) pool = q; }
   if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || ((ing(x.ing) || {}).pantry || 0) > 0));
   if (style === 'combos') pool = pool.filter(r => (r.tags || []).includes('kupne'));
-  const combos = style === 'recipes' ? [] : comboPool(slot, week, set);
+  const combos = (style === 'recipes' || (slot !== 'lunch' && slot !== 'dinner')) ? [] : comboPool(slot, week, set);
   return pool.concat(combos);
 }
 function candidates(slot, week) {
