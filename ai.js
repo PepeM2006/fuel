@@ -206,3 +206,41 @@ async function aiAsk(prompt, system = 'Odpowiadaj wyłącznie jednym obiektem JS
   if (cfg.mode === 'api') { const r = await callApi({ system, messages: [{ role: 'user', content: prompt }], max_tokens: 500 }), j = await r.json(); if (!r.ok) throw new Error((j.error && (j.error.message || j.error)) || 'błąd'); return (j.content || []).map(b => b.text || '').join(''); }
   throw new Error('Asystent nie jest połączony');
 }
+
+/* Claude invents NEW recipes that fit this user: respects bans, builds on what they rate highly, avoids what was dropped */
+async function aiNewRecipes(o = {}) {
+  const n = Math.max(1, Math.min(6, o.n || 3)), slot = o.slot || 'dinner', p = S.prefs, t = tasteSummary();
+  const rules = { breakfast: 'szybkie do zrobienia w 5 minut albo shake; nie danie obiadowe', lunch: 'na uczelnię: zimne albo szybkie (kanapki, wrapy, sałatki w pudełku, jajka); NIC, co może się wylać (bez zup, shake\'ów, dużej ilości mleka/jogurtu); bez gotowania rano', dinner: 'duża, sycąca obiadokolacja gotowana raz na 2–3 dni' }[slot] || '';
+  const bi = p.banIng.map(id => ing(id)).filter(Boolean).map(i => i.name), bk = p.banKind.map(k => KINDS[k] && KINDS[k].n).filter(Boolean);
+  const top = ratingSummary(), liked = top.filter(x => x.avg >= 4).slice(0, 8).map(x => x.rec.name), bad = (p.dropped || []).slice(-8).map(x => x.name);
+  const prompt = `Zaproponuj ${n} NOWYCH przepisów na posiłek „${SLOT_PL[slot]}" dla studenta w Holandii (lekki bulk, mało czasu, mało przetworzone jedzenie, bez dodanego cukru, tanio, produkty z holenderskiego supermarketu).
+Wymagania dla tego posiłku: ${rules}.
+NIE używaj składników: ${bi.join(', ') || 'brak ograniczeń'}. NIE proponuj rodzajów dań: ${bk.join(', ') || 'brak'}.
+Użytkownik lubi: ${[...liked, ...t.likeIng.slice(0, 5).map(x => x[0]), ...t.likeKind.slice(0, 3).map(x => x[0])].join(', ') || 'brak danych'}. Unika: ${[...bad, ...t.dislikeIng.slice(0, 5).map(x => x[0])].join(', ') || 'brak danych'}. Zaproponuj dania PODOBNE do tego, co lubi, a różne od tego, co odrzucił.
+Używaj głównie składników z tej listy (dokładne nazwy): ${S.ingredients.map(i => i.name).join('; ')}.
+Jeśli naprawdę potrzebny jest inny składnik, dodaj go w "new_ingredients" z wartościami na 100 g/ml (lub na 1 sztukę).
+Nie powtarzaj istniejących przepisów: ${S.recipes.map(r => r.name).slice(0, 90).join('; ')}.
+Ilości podaj na 1 porcję o wartości ok. ${slot === 'dinner' ? 1000 : 650} kcal.
+Odpowiedz WYŁĄCZNIE jednym obiektem JSON: {"recipes":[{"name":"","tags":[""],"prep":"co przygotować z wyprzedzeniem lub pusty tekst","steps":["krótki krok 1","krok 2"],"items":[{"ingredient":"nazwa","amount":0}]}],"new_ingredients":[{"name":"","nl":"nazwa w holenderskim sklepie","unit":"g|ml|pcs","kcal":0,"protein":0,"carbs":0,"fat":0,"aisle":"jedno z: ${AISLES.join(', ')}","pack":0,"price":0,"proc":0}]}`;
+  const txt = await aiAsk(prompt, 'Jesteś dietetykiem i kucharzem. Odpowiadasz wyłącznie poprawnym JSON.');
+  const j = extractJson(txt); if (!j || !Array.isArray(j.recipes)) throw new Error('Claude zwrócił nieczytelną odpowiedź');
+  const addedIng = [];
+  for (const x of (j.new_ingredients || [])) {
+    if (!x || !x.name || findIngFuzzy(x.name)) continue;
+    if (p.banIng.some(id => norm((ing(id) || {}).name) === norm(x.name))) continue;
+    const u2 = ['g', 'ml', 'pcs'].includes(x.unit) ? x.unit : 'g';
+    S.ingredients.push({ id: uid(), name: x.name, nl: x.nl || '', unit: u2, kcal: +x.kcal || 0, p: +x.protein || 0, c: +x.carbs || 0, f: +x.fat || 0, aisle: AISLES.includes(x.aisle) ? x.aisle : 'Inne', pack: +x.pack || 0, price: +x.price || 0, proc: Math.max(0, Math.min(2, +x.proc || 0)), pantry: 0, aiAdded: true }); addedIng.push(x.name);
+  }
+  const added = [], T = slotTarget(slot);
+  for (const rr of j.recipes.slice(0, n)) {
+    if (!rr || !rr.name || S.recipes.some(x => norm(x.name) === norm(rr.name))) continue;
+    const items = []; let ok = true;
+    for (const it of rr.items || []) { const i = findIngFuzzy(it.ingredient); if (!i || !(it.amount > 0)) { ok = false; break; } items.push({ ing: i.id, amt: +it.amount }); }
+    if (!ok || items.length < 2) continue;
+    const f = fitItems(items, T.kcal, T.p);
+    const rec_ = { id: uid(), name: String(rr.name).slice(0, 80), slots: [slot], items: f.items, how: (rr.steps || []).join('\n'), prep: rr.prep || '', tags: [...(rr.tags || []).slice(0, 3), 'nowe od Claude'] };
+    if (isBanned(rec_)) continue;
+    S.recipes.push(rec_); added.push(rec_.name);
+  }
+  return { added, addedIng };
+}

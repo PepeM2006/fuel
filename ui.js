@@ -15,6 +15,10 @@ const macroLine = m => `${r0(m.kcal)} kcal · B${r0(m.p)} W${r0(m.c)} T${r0(m.f)
 const tagHtml = r => (r.tags || []).slice(0, 3).map(t => `<span class="tag">${esc(t)}</span>`).join('');
 const cleanBadge = r => isClean(r) ? '' : '<span class="tag warn">przetworzone</span>';
 
+function rateRow(d, s, it) {
+  const r = it.rating || 0;
+  return `<div class="rate"><span class="xs mut">${r ? 'Smak: ' + RATING_TXT[r] : 'Jak smakowało?'}</span><div class="rbtns">${[1, 2, 3, 4, 5].map(k => `<button class="${k === r ? 'sel' : ''}" data-act="rate" data-d="${d}" data-s="${s}" data-r="${k}" aria-label="Ocena ${k} z 5 – ${RATING_TXT[k]}">${k}</button>`).join('')}</div></div>`;
+}
 function viewToday() {
   const d = UI.date, t = targets(d), c = consumed(d), left = plannedLeft(d), dp = S.plan[d] || {};
   const remain = t.kcal - c.kcal, pct = Math.max(0, Math.min(1, c.kcal / t.kcal));
@@ -62,7 +66,7 @@ function viewToday() {
     if (live(it)) {
       const r = rec(it.rid), m = itemMacros(it);
       L += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
-        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div></div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? '' : optsHtml(d, s)}`;
+        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div></div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? rateRow(d, s, it) : optsHtml(d, s)}`;
     } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
   for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
@@ -216,9 +220,12 @@ function viewFoods() {
     ${UI.foodsTab === 'fridge' ? '' : `<input id="q" placeholder="Szukaj…" value="${esc(UI.q)}" data-bind-q>`}`;
   if (UI.foodsTab === 'fridge') return h + viewFridge();
   if (UI.foodsTab === 'rec') {
+    const dropList = (S.prefs.dropped || []).filter(x => S.prefs.banRec.includes(x.rid)), nDrop = dropList.length, cl = UI.cfg || {};
+    h += `<div class="row wrap" style="margin:10px 0 0"><button class="sm pri" data-act="claudeNew">Nowe przepisy od Claude</button><button class="sm ${UI.showDropped ? 'sel' : ''}" data-act="showDropped">Wypadły z bazy (${nDrop})</button><span class="xs mut">${cl.mode === 'cli' || cl.mode === 'api' ? '<span style="color:var(--acc)">●</span> Claude połączony' : 'Claude niepołączony'}</span></div>`;
+    if (UI.showDropped) return h + `<div class="card" style="margin-top:12px"><h2>Wypadły z bazy</h2>${dropList.length ? dropList.slice().reverse().map(x => `<div class="meal"><div class="grow"><div class="b">${esc(x.name)}</div><div class="mut xs">${x.why === 'rating' ? 'słaba ocena' + (x.avg ? ' (' + String(x.avg).replace('.', ',') + ')' : '') : esc(x.why)} · ${esc(fmtDay(ymd(new Date(x.t))))}</div></div><button class="sm" data-act="restoreRec" data-id="${x.rid}">Przywróć</button></div>`).join('') : '<div class="mut sm">Nic nie wypadło. Dania z oceną „niedobre" (1) albo dwiema słabymi ocenami wypadają tutaj.</div>'}</div>`;
     h += `<div class="chips" style="margin:10px 0">${[['', 'Wszystkie'], ['breakfast', 'Śniadania'], ['lunch', 'Na uczelnię'], ['dinner', 'Obiadokolacje'], ['snack', 'Przekąski']].map(([k, l]) => `<button class="sm ${UI.slotFilter === k ? 'sel' : ''}" data-act="sfilter" data-k="${k}">${l}</button>`).join('')}</div><div class="cards">`;
-    const f = r => (!UI.slotFilter || r.slots.includes(UI.slotFilter)) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
-    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="${fitServ(r)}"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="row" style="gap:2px"><span class="mut sm">${money(recipeCost(r))}</span><button class="ghost sm danger" data-act="delRec" data-id="${r.id}" aria-label="Usuń przepis">✕</button></div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${isBanned(r) ? '<span class="tag warn">wykluczony</span>' : ''}${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
+    const f = r => (!UI.slotFilter || r.slots.includes(UI.slotFilter)) && (UI.showDropped ? isBanned(r) : !isBanned(r)) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
+    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="${fitServ(r)}"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="row" style="gap:2px"><span class="mut sm">${money(recipeCost(r))}</span><button class="ghost sm danger" data-act="delRec" data-id="${r.id}" aria-label="Usuń przepis">✕</button></div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${isBanned(r) ? `<span class="tag warn">wypadł z bazy</span><button class="sm" data-act="restoreRec" data-id="${r.id}">Przywróć</button>` : ''}${(() => { const a = avgRating(r.id); return a ? `<span class="tag">★ ${(Math.round(a.avg * 10) / 10).toString().replace('.', ',')} (${a.n})</span>` : ''; })()}${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
     h += `</div>`;
   } else {
     h += `<div class="card" style="margin-top:10px">`;
@@ -242,6 +249,7 @@ function aiConnectCard() {
   }
   return `<div class="card"><h3>Połącz z kontem Claude</h3>
     <p class="sm mut" style="margin:8px 0 12px">Nie potrzebujesz klucza API. Fuel używa Twojego konta Claude przez Claude Code zainstalowany na tym komputerze – w ramach subskrypcji.</p>
+    ${cli.expired ? '<div class="warnbox" style="margin:0 0 12px"><b>Sesja logowania Claude wygasła.</b> Zaloguj się ponownie – to zajmuje pół minuty.</div>' : ''}
     ${cli.found ? `<ol class="sm" style="margin:0 0 12px;padding-left:20px"><li>Kliknij „Zaloguj się do Claude" – na komputerze otworzy się okno logowania.</li><li>Zaloguj się w przeglądarce, wróć tutaj i kliknij „Sprawdź połączenie".</li></ol>
     <div class="row wrap"><button class="pri" data-act="aiLogin">Zaloguj się do Claude</button><button data-act="aiRecheck">Sprawdź połączenie</button></div>`
       : `<div class="warnbox" style="margin:0">Serwer Fuel nie widzi Claude Code na tym komputerze. Zainstaluj aplikację Claude (zawiera Claude Code), zaloguj się w niej, potem kliknij poniżej.</div><button style="margin-top:10px" data-act="aiRecheck">Sprawdź ponownie</button>`}
@@ -358,6 +366,26 @@ function optsHtml(d, s) {
   return `<div class="opts"><div class="olab">Inne opcje <button class="ghost sm" data-act="rotOpt" data-d="${d}" data-s="${s}">↻ pokaż inne</button></div><div class="orow">${o.map(x => { const r = rec(x.rid); return `<button class="opt" data-act="swapOpt" data-d="${d}" data-s="${s}" data-rid="${x.rid}" data-serv="${x.serv}"><b>${esc(r.name)}</b><span>${r0(x.kcal)} kcal · B${r0(x.p)}</span><span class="${x.pref >= 1.5 || x.cover >= .25 || x.nw === 0 ? 'ok' : ''}">${x.pref >= 1.5 ? 'lubisz takie dania' : x.cover >= .25 ? 'masz w domu ' + r0(x.cover * 100) + '%' : x.nw === 0 ? 'bez nowych zakupów' : '+' + x.nw + ' nowe prod.'}</span></button>`; }).join('')}</div></div>`;
 }
 function saveCombo(r) { S.recipes.push({ id: uid(), name: r.name, slots: r.slots.slice(), items: r.items.map(x => ({ ...x })), how: r.how, prep: r.prep, tags: r.tags.filter(t => t !== 'składane').concat('własny') }); save(); toast('Zapisano w Twoich przepisach (Jedzenie → Przepisy)'); }
+/* a dish dropped out: ask Claude (if connected) for fresh dishes in its place, quietly in the background */
+async function autoReplace(slot) {
+  const cfg = UI.cfg || {}; if (!(cfg.mode === 'cli' || cfg.mode === 'api') || S.prefs.autoNew === false) return;
+  if (Date.now() - (UI.lastAuto || 0) < 10 * 60 * 1000) return; UI.lastAuto = Date.now();
+  try { const r = await aiNewRecipes({ n: 2, slot }); if (r.added.length) { save(); render(); toast(`Claude dobrał nowe przepisy pod Twój gust: ${r.added.join(', ')}`); } } catch (e) { /* fine – the offline replacement already happened */ }
+}
+function claudeNewDialog() {
+  const cfg = UI.cfg || {}, on = cfg.mode === 'cli' || cfg.mode === 'api';
+  modal('Nowe przepisy od Claude', `<p class="sm" style="margin-top:0">Claude wymyśli nowe przepisy <b>pod Twój gust</b>: uwzględni wykluczenia (${S.prefs.banIng.length + S.prefs.banKind.length} reguł), Twoje oceny i to, co wypadło z bazy. Ilości dopasuję do Twojego celu.</p>
+    ${on ? `<div class="sm"><span style="color:var(--acc)">●</span> Claude jest połączony${cfg.mode === 'cli' ? ' (Twoje konto przez komputer)' : ' (klucz API)'}.</div>` : '<div class="warnbox" style="margin:0">Claude nie jest połączony – przejdź do zakładki Asystent i połącz konto albo klucz.</div>'}
+    <label>Na jaki posiłek</label><select id="cn_slot"><option value="dinner">Obiadokolacja</option><option value="lunch">Na uczelnię</option><option value="breakfast">Śniadanie</option></select>
+    <label>Ile przepisów</label><select id="cn_n"><option>2</option><option selected>3</option><option>5</option></select>
+    <div class="xs mut" id="cn_msg" style="margin-top:10px"></div>`,
+    [{ label: 'Dobierz przepisy', cls: 'pri', fn: async () => {
+      if (!on) return toast('Najpierw połącz Claude (zakładka Asystent)');
+      const msg = $('#cn_msg'); msg.textContent = 'Claude układa przepisy… to potrwa 15–30 sekund.';
+      try { const r = await aiNewRecipes({ n: +val('cn_n'), slot: val('cn_slot') }); save(); render(); closeModal(); toast(r.added.length ? `Dodano ${r.added.length}: ${r.added.join(', ')}${r.addedIng.length ? ' · nowe produkty (sprawdź makro): ' + r.addedIng.join(', ') : ''}` : 'Claude nie zaproponował niczego nowego – spróbuj jeszcze raz'); }
+      catch (e) { msg.textContent = 'Nie udało się: ' + (e.message || e); }
+    } }]);
+}
 function dislikeDialog(rid) {
   const r = rec(rid); if (!r) return;
   const mains = mainIngs(r).map(x => ing(x.ing)).filter(Boolean), kinds = kindsOf(r).filter(k => k !== 'veggie');
@@ -400,6 +428,8 @@ function prefsCard() {
     <div class="sm" style="margin-top:8px"><b>Nie jem:</b> ${bans.length ? bans.map(b => `<span class="tag warn">${esc(b)}</span>`).join(' ') : '<span class="mut">nic nie wykluczono</span>'}</div>
     <div class="sm" style="margin-top:6px"><b>Lubisz:</b> ${top([...t.likeKind, ...t.likeIng].sort((a, b) => b[1] - a[1]))}</div>
     <div class="sm"><b>Unikasz:</b> ${top([...t.dislikeKind, ...t.dislikeIng].sort((a, b) => a[1] - b[1]))}</div>
+    ${(() => { const rs = ratingSummary(); return rs.length ? `<div class="sm" style="margin-top:6px"><b>Najlepiej smakowało:</b> ${rs.filter(x => x.avg >= 4).slice(0, 4).map(x => esc(x.rec.name) + ' (' + (Math.round(x.avg * 10) / 10).toString().replace('.', ',') + ')').join(', ') || '—'}</div><div class="sm"><b>Oceniłeś:</b> ${S.ratings.length} posiłków. Dania z oceną „niedobre" wypadają z bazy, a na ich miejsce wchodzą nowe.</div>` : '<div class="sm mut" style="margin-top:6px">Oceniaj posiłki po zjedzeniu (1–5) – dania, które nie smakowały, wypadną z bazy, a wejdą takie, które mogą Ci smakować.</div>'; })()}
+    <label class="row chk" style="margin-top:8px"><input type="checkbox" data-bind="prefs.autoNew" ${p.autoNew !== false ? 'checked' : ''}> Gdy danie wypadnie, poproś Claude o nowe przepisy</label>
     <label class="row chk" style="margin-top:8px"><input type="checkbox" data-bind="prefs.learn" ${p.learn ? 'checked' : ''}> Ucz się z moich wyborów</label>
     <div class="row wrap" style="margin-top:8px"><button class="sm pri" data-act="prefsEdit">Zmień wykluczenia</button><button class="sm" data-act="prefsAnalyze">Przeanalizuj moje wybory</button><button class="sm danger" data-act="prefsReset">Wyczyść naukę</button></div></div>`;
 }
@@ -689,6 +719,20 @@ const ACTIONS = {
       <div class="mut xs" style="margin-top:10px">Plusy rosną, gdy wybierasz albo jedz dania, minusy – gdy je zamieniasz, usuwasz albo pomijasz.</div>`, []);
   },
   prefsReset: () => { if (!confirm('Wyczyścić wszystko, czego Fuel nauczył się z Twoich wyborów? (Wykluczenia zostają.)')) return; S.prefs.score = {}; S.prefs.log = []; save(); render(); toast('Wyczyszczono naukę'); },
+  rate: ds => {
+    const r = +ds.r, d = ds.d, s = ds.s, it = (S.plan[d] || {})[s]; if (!it) return;
+    const name = rec(it.rid) ? rec(it.rid).name : 'danie', slot = rec(it.rid) && rec(it.rid).slots[0];
+    let dropped = null, fresh = [];
+    withUndo(() => {
+      const res = rateMeal(d, s, r); if (!res) return 'Nie udało się zapisać oceny';
+      if (res.drop) { dropped = dropRecipe(it.rid, 'rating'); if (dropped) fresh = promoteCombos(2); }
+      return dropped ? `Wypadło z bazy: ${name}${fresh.length ? ' · nowe w bazie: ' + fresh.join(', ') : ''}` : `Zapisano: ${RATING_TXT[r]}`;
+    });
+    if (dropped) autoReplace(slot === 'breakfast' ? 'breakfast' : slot === 'lunch' ? 'lunch' : 'dinner');
+  },
+  claudeNew: () => claudeNewDialog(),
+  showDropped: () => { UI.showDropped = !UI.showDropped; render(); },
+  restoreRec: ds => withUndo(() => { restoreDropped(ds.id); return 'Przepis wrócił do bazy'; }),
   welcomeOk: () => { S.welcomeSeen = true; save(); render(); },
   snapRestore: async ds => { const json = await idbGet(ds.k); if (!json) return toast('Nie mogę wczytać tej wersji'); let d; try { d = JSON.parse(json); } catch (e) { return toast('Ta wersja jest uszkodzona'); } withUndo(() => { const rev = S.rev, chat = S.chat; S = d; S.rev = rev; S.chat = S.chat || chat; migrate(); return 'Przywrócono wersję z ' + new Date(+String(ds.k).slice(5)).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }); },
   undo: () => { if (UI.undoFn) { UI.undoFn(); UI.undoFn = null; } },

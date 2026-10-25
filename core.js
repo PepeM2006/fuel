@@ -36,7 +36,7 @@ function migrate() {
   const d = seedData();
   for (const k of ['plan', 'log', 'workouts', 'adjust', 'shopChecked', 'menus', 'bases', 'optSeen']) S[k] = S[k] || {};
   S.chat = S.chat || []; S.ingredients = S.ingredients || []; S.recipes = S.recipes || [];
-  S.prefs = Object.assign({ learn: true, banIng: [], banKind: [], banRec: [], score: {}, log: [] }, S.prefs || {});
+  S.prefs = Object.assign({ learn: true, banIng: [], banKind: [], banRec: [], score: {}, log: [], rate: {}, dropped: [], promoted: [], autoNew: true }, S.prefs || {}); S.ratings = S.ratings || [];
   S.profile = Object.assign({}, d.profile, S.profile || {});
   if (!S.lastBackup) S.lastBackup = today();
   if (S.profileSet === undefined && (S.setupDone || S.rev > 0)) S.profileSet = true;   // existing users are not asked again
@@ -235,7 +235,8 @@ function optionPool(slot, week, ignoreSet = false) {
   if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || ((ing(x.ing) || {}).pantry || 0) > 0));
   if (style === 'combos') pool = pool.filter(r => (r.tags || []).includes('kupne'));
   const combos = (style === 'recipes' || (slot !== 'lunch' && slot !== 'dinner')) ? [] : comboPool(slot, week, set);
-  return pool.concat(combos).filter(r => !isBanned(r));   // things you never want are never offered
+  const have = new Set(pool.map(r => r.name));
+  return pool.concat(combos.filter(x => !have.has(x.name))).filter(r => !isBanned(r));   // things you never want are never offered
 }
 function candidates(slot, week) {
   let c = optionPool(slot, week);
@@ -754,3 +755,37 @@ function applyBans(banIng, banKind) {
   S.prefs.banIng = [...new Set(banIng)]; S.prefs.banKind = [...new Set(banKind)];
   return fixPlanSlots();
 }
+
+
+/* ============ rating after a meal: bad dishes drop out of the base, new ones that may taste good come in ============ */
+const RATING_D = { 1: -3, 2: -1.5, 3: 0, 4: 1.2, 5: 2.4 };
+const RATING_TXT = { 1: 'niedobre', 2: 'słabe', 3: 'ok', 4: 'dobre', 5: 'super' };
+function avgRating(rid) { const st = (S.prefs.rate || {})[rid]; return st && st.n > 0 ? { avg: st.sum / st.n, n: st.n } : null; }
+/* store a 1-5 rating for a planned meal, learn from it (undoing an older rating of the same meal); says whether the dish should drop out */
+function rateMeal(d, s, r) {
+  const it = (S.plan[d] || {})[s]; if (!it || !(r >= 1 && r <= 5)) return null;
+  const p = S.prefs, rid = it.rid, old = it.rating || 0;
+  if (old) { learn(rid, -RATING_D[old], 'rating-undo'); const o = p.rate[rid]; if (o) { o.sum -= old; o.n = Math.max(0, o.n - 1); } }
+  it.rating = r; learn(rid, RATING_D[r], 'rating');
+  const st = p.rate[rid] = p.rate[rid] || { n: 0, sum: 0 }; st.n += 1; st.sum += r;
+  S.ratings.push({ t: Date.now(), d, s, rid, r }); if (S.ratings.length > 600) S.ratings.splice(0, S.ratings.length - 600);
+  const avg = st.sum / st.n;
+  return { avg, n: st.n, drop: r === 1 || (st.n >= 2 && avg <= 2.2) };
+}
+/* take a dish out of the base (it stays restorable) and clear it from the days ahead */
+function dropRecipe(rid, why) {
+  const r = rec(rid), p = S.prefs; if (!r || p.banRec.includes(rid)) return null;
+  p.banRec.push(rid); const a = avgRating(rid);
+  p.dropped.push({ rid, name: r.name, t: Date.now(), why: why || 'rating', avg: a ? Math.round(a.avg * 10) / 10 : null });
+  fixPlanSlots(); return r.name;
+}
+function restoreDropped(rid) { const p = S.prefs; p.banRec = p.banRec.filter(x => x !== rid); p.dropped = p.dropped.filter(x => x.rid !== rid); }
+/* new dishes in their place, offline: promote the assembled dishes you are most likely to like into your recipe base */
+function promoteCombos(n = 2) {
+  const wk = weekStart(today()), have = new Set(S.recipes.map(r => r.name)), used = new Set(S.prefs.promoted || []), out = [], keys = new Set();
+  const ranked = [...comboPool('dinner', wk, null, 400), ...comboPool('lunch', wk, null, 200)].filter(r => !isBanned(r) && !have.has(r.name) && !used.has(r.id)).map(r => ({ r, sc: prefScore(r) + Math.random() * .8 })).sort((a, b) => b.sc - a.sc);
+  for (const { r } of ranked) { if (out.length >= n) break; const k = comboKey(r) + r.slots[0]; if (keys.has(k)) continue; keys.add(k); out.push(r); }
+  for (const r of out) { S.recipes.push({ id: uid(), name: r.name, slots: r.slots.slice(), items: r.items.map(x => ({ ...x })), how: r.how, prep: r.prep, tags: ['nowe', ...r.tags.filter(t => t !== 'składane')] }); (S.prefs.promoted = S.prefs.promoted || []).push(r.id); }
+  return out.map(r => r.name);
+}
+const ratingSummary = () => Object.entries(S.prefs.rate || {}).map(([rid, st]) => ({ rid, rec: rec(rid), avg: st.n ? st.sum / st.n : 0, n: st.n })).filter(x => x.rec && x.n > 0).sort((a, b) => b.avg - a.avg);

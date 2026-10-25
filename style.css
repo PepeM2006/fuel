@@ -118,3 +118,6 @@ button,a,label,input,select,summary{touch-action:manipulation}
 
 .chips label.chip{padding:5px 11px;border:1px solid var(--line);border-radius:9px;margin:0;font-size:13.5px;gap:7px}.chips label.chip input{width:18px;height:18px}
 .opt.wide{width:100%;flex:none;margin:4px 0}.olist{max-height:240px;overflow:auto;margin-top:6px}
+
+.rate{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 12px 0;padding:8px 10px;border-radius:10px;background:var(--acc2)}
+.rbtns{display:flex;gap:5px}.rbtns button{width:34px;height:34px;padding:0;border-radius:50%;font-size:14px}.rbtns button.sel{background:var(--acc);border-color:var(--acc);color:var(--bg)}
