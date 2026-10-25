@@ -283,6 +283,7 @@ function generate(week, opts = {}) {
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
   const baseNeed = [{}, {}];
   for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
+  const FW = S.profile.frozenPref === 'normal' ? .08 : 0.7;
   const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
@@ -301,6 +302,7 @@ function generate(week, opts = {}) {
       if (prevSet.has(r.id)) sc -= W.keep;
       sc += bigPen(sv) * bl.days.length;
       sc -= .15 * pf(r) * bl.days.length;   // what you usually pick scores better
+      sc -= FW * frozenShare(r) * bl.days.length;   // frozen ready-to-cook products save time
       if (bl.s === 'dinner') sc -= meatPref * (hasMeat(r) ? 1 : 0) * bl.days.length;   // taste: how often meat/fish for dinner
     });
     for (const k in cnt) { const rid = k.split('|')[1]; sc += (cnt[k] - 1) * W.repeat + (prevUse[rid] || 0) * .15; }
@@ -566,7 +568,7 @@ function optionsFor(d, s, n = 3, rot = 0, seen = []) {
     const m = recipeMacros(r); if (m.kcal <= 0) return null;
     const serv = clampServ(tgtK / m.kcal), got = m.kcal * serv, nw = r.items.filter(x => !have.has(x.ing) && !COMBO_STAPLES.has(x.ing)).length, cover = pantryCover(r, serv);
     const pref = prefScore(r);
-    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, key: comboKey(r), sc: - pref * .5 + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
+    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, frozen: frozenShare(r) >= .5, key: comboKey(r), sc: - pref * .5 - (S.profile.frozenPref === 'normal' ? .1 : 1.2) * frozenShare(r) + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
   }).filter(Boolean);
   let fresh = scored.filter(o => !seenSet.has(o.rid));
   if (fresh.length < n) fresh = scored;                                   // everything seen: start again
@@ -789,3 +791,29 @@ function promoteCombos(n = 2) {
   return out.map(r => r.name);
 }
 const ratingSummary = () => Object.entries(S.prefs.rate || {}).map(([rid, st]) => ({ rid, rec: rec(rid), avg: st.n ? st.sum / st.n : 0, n: st.n })).filter(x => x.rec && x.n > 0).sort((a, b) => b.avg - a.avg);
+
+
+/* ============ frozen ready-to-cook products: fewer minutes in the kitchen ============ */
+const isFrozenIng = i => !!i && i.aisle === 'Mrożonki';
+function frozenShare(r) {   // share of the dish's products that come from the freezer (no peeling, chopping or thawing)
+  const its = r.items.filter(x => !COMBO_STAPLES.has(x.ing)); if (!its.length) return 0;
+  return its.filter(x => isFrozenIng(ing(x.ing))).length / its.length;
+}
+const FRESH_TO_FROZEN = { broccoli: 'broccoli_fr', bloemkool: 'bloemkool_fr', spinazie: 'spinaziedk', zoete: 'zoete_fr', aardappel: 'aardappel_fr', kip: 'kip_fr', zalm: 'zalm_fr', paprika: 'paprika_fr', champ: 'champ_fr', courgette: 'courgette_fr', butternut: 'butternut_fr', spruit: 'spruit_fr', wortel: 'wortel_fr' };
+/* the same recipe with every fresh product that has a frozen twin swapped for it (null when nothing can be swapped) */
+function frozenVariant(r) {
+  let n = 0;
+  const items = r.items.map(x => { const to = FRESH_TO_FROZEN[x.ing], ti = to && ing(to), fi = ing(x.ing); if (ti && fi && fi.unit === ti.unit && ti.unit !== 'pcs') { n++; return { ...x, ing: to }; } return { ...x }; });
+  if (!n) return null;
+  return { name: r.name + ' (z mrożonek)', slots: r.slots.slice(), items, how: [...(r.how ? r.how.split('\n') : []), 'Składniki z mrożonek nie wymagają rozmrażania ani krojenia – dodaj 3–5 minut do czasu gotowania.'].join('\n'), prep: r.prep, tags: [...new Set([...(r.tags || []).filter(t => t !== 'nowe' && t !== 'nowe od Claude'), 'z mrożonek', 'szybkie'])] };
+}
+function addFrozenVariants(onlyId) {
+  let n = 0;
+  for (const r of S.recipes.slice()) {
+    if (onlyId && r.id !== onlyId) continue;
+    if ((r.tags || []).includes('z mrożonek') || r.name.endsWith('(z mrożonek)') || (r.tags || []).includes('kupne')) continue;
+    const v = frozenVariant(r); if (!v || S.recipes.some(x => x.name === v.name)) continue;
+    v.id = uid(); S.recipes.push(v); n++;
+  }
+  return n;
+}

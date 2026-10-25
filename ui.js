@@ -84,7 +84,7 @@ function weekSwitch() {   // always visible: this week / next week
   return `<div class="seg" style="margin:0 0 12px"><button class="${w === cur ? 'sel' : ''}" data-act="weekSet" data-w="${cur}">Ten tydzień · ${lab(cur)}</button><button class="${w === nxt ? 'sel' : ''}" data-act="weekSet" data-w="${nxt}">Następny · ${lab(nxt)}</button></div>`;
 }
 function viewPlan() {
-  const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0 }, menu = S.menus[wk] || [];
+  const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0, frozen: 0 }, menu = S.menus[wk] || [];
   let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
   h += weekSwitch();
   h += saveBar();
@@ -98,6 +98,7 @@ function viewPlan() {
       <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Śniadanie</label><select data-bind="profile.breakfastQuick"><option value="true" ${S.profile.breakfastQuick !== false ? 'selected' : ''}>shake lub coś szybkiego</option><option value="false" ${S.profile.breakfastQuick === false ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Na uczelnię</label><select data-bind="profile.noSpill"><option value="true" ${S.profile.noSpill !== false ? 'selected' : ''}>nic, co może się wylać</option><option value="false" ${S.profile.noSpill === false ? 'selected' : ''}>dowolne</option></select></div>
+      <div><label>Mrożonki (oszczędność czasu)</label><select data-bind="profile.frozenPref"><option value="more" ${S.profile.frozenPref !== 'normal' ? 'selected' : ''}>więcej – mniej krojenia i gotowania</option><option value="normal" ${S.profile.frozenPref === 'normal' ? 'selected' : ''}>normalnie</option></select></div>
       <div><label>Dania</label><select data-bind="profile.mealStyle">${[['mix', 'przepisy i składane z półproduktów'], ['recipes', 'tylko gotowe przepisy'], ['combos', 'tylko składane z półproduktów']].map(([v, l]) => `<option value="${v}" ${(S.profile.mealStyle || 'mix') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Mięso i ryby na obiadokolację</label><select data-bind="profile.meatPref">${[['less', 'rzadziej'], ['normal', 'normalnie'], ['more', 'często']].map(([v, l]) => `<option value="${v}" ${(S.profile.meatPref || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Zakupy w tygodniu</label><select data-bind="profile.shopTrips"><option value="1" ${(S.profile.shopTrips | 0) < 2 ? 'selected' : ''}>raz (świeże mięso tylko na pierwsze dni)</option><option value="2" ${(S.profile.shopTrips | 0) >= 2 ? 'selected' : ''}>dwa razy (świeże przez cały tydzień)</option></select></div>
@@ -106,7 +107,7 @@ function viewPlan() {
   h += `<div class="daygrid">`;
   for (let i = 0; i < 7; i++) {
     const d = addDays(wk, i), dp = S.plan[d] || {}, t = targets(d), dm = ZERO(); let dc = 0, any = false;
-    for (const s of SL()) { const it = dp[s]; if (live(it)) { any = true; addM(dm, itemMacros(it)); dc += itemCost(it); tot.meals++; if (isClean(rec(it.rid))) tot.clean++; priced.push({ d, s, it, cost: itemCost(it) }); } }
+    for (const s of SL()) { const it = dp[s]; if (live(it)) { any = true; addM(dm, itemMacros(it)); dc += itemCost(it); tot.meals++; if (isClean(rec(it.rid))) tot.clean++; if (frozenShare(rec(it.rid)) >= .5) tot.frozen++; priced.push({ d, s, it, cost: itemCost(it) }); } }
     for (const e of S.log[d] || []) addM(dm, e);
     if (any) { tot.kcal += dm.kcal; tot.cost += dc; tot.days++; }
     if (d < today() && !any) { h += `<div class="card day" style="opacity:.55;padding:10px 16px"><b>${DAYFULL[i]}</b> <span class="mut sm">${parseD(d).getDate()}.${pad(parseD(d).getMonth() + 1)} · minął</span></div>`; continue; }
@@ -132,7 +133,7 @@ function viewPlan() {
     h += `</div>`;
   }
   const _sl = shopList(wk).filter(r => r.buy > .01), nItems = _sl.length, shopCost = _sl.reduce((a, r) => a + r.cost, 0), leftVal = _sl.reduce((a, r) => a + Math.max(0, r.qty - r.buy) * unitCost(r.i), 0);
-  h += `<div class="card"><h2>Podsumowanie</h2><div class="sm">${tot.days ? `Średnio <b>${r0(tot.kcal / tot.days)} kcal/dzień</b> · zakupy: <b>${nItems} produktów</b>, ok. <b>${money(shopCost)}</b>${S.profile.budget ? ` (budżet ${money(S.profile.budget)})` : ''} · po tygodniu zostanie ok. <b>${money(leftVal)}</b> (${r0(leftVal / Math.max(1, shopCost) * 100)}% zakupów) · ${r0(tot.clean / Math.max(1, tot.meals) * 100)}% posiłków bez przetworzonych` : 'Jeszcze nic nie zaplanowano.'}</div>`;
+  h += `<div class="card"><h2>Podsumowanie</h2><div class="sm">${tot.days ? `Średnio <b>${r0(tot.kcal / tot.days)} kcal/dzień</b> · zakupy: <b>${nItems} produktów</b>, ok. <b>${money(shopCost)}</b>${S.profile.budget ? ` (budżet ${money(S.profile.budget)})` : ''} · po tygodniu zostanie ok. <b>${money(leftVal)}</b> (${r0(leftVal / Math.max(1, shopCost) * 100)}% zakupów) · ${r0(tot.clean / Math.max(1, tot.meals) * 100)}% posiłków bez przetworzonych · ${tot.frozen} dań z mrożonek (mniej krojenia i gotowania)` : 'Jeszcze nic nie zaplanowano.'}</div>`;
   if (S.profile.budget && tot.cost > S.profile.budget && priced.length) {
     const top = priced.filter(x => !x.it.locked && !x.it.eaten).sort((a, b) => b.cost - a.cost)[0];
     if (top) {
@@ -221,7 +222,7 @@ function viewFoods() {
   if (UI.foodsTab === 'fridge') return h + viewFridge();
   if (UI.foodsTab === 'rec') {
     const dropList = (S.prefs.dropped || []).filter(x => S.prefs.banRec.includes(x.rid)), nDrop = dropList.length, cl = UI.cfg || {};
-    h += `<div class="row wrap" style="margin:10px 0 0"><button class="sm pri" data-act="claudeNew">Nowe przepisy od Claude</button><button class="sm ${UI.showDropped ? 'sel' : ''}" data-act="showDropped">Wypadły z bazy (${nDrop})</button><span class="xs mut">${cl.mode === 'cli' || cl.mode === 'api' ? '<span style="color:var(--acc)">●</span> Claude połączony' : 'Claude niepołączony'}</span></div>`;
+    h += `<div class="row wrap" style="margin:10px 0 0"><button class="sm pri" data-act="claudeNew">Nowe przepisy od Claude</button><button class="sm" data-act="frozenAll">Wersje z mrożonek</button><button class="sm ${UI.showDropped ? 'sel' : ''}" data-act="showDropped">Wypadły z bazy (${nDrop})</button><span class="xs mut">${cl.mode === 'cli' || cl.mode === 'api' ? '<span style="color:var(--acc)">●</span> Claude połączony' : 'Claude niepołączony'}</span></div>`;
     if (UI.showDropped) return h + `<div class="card" style="margin-top:12px"><h2>Wypadły z bazy</h2>${dropList.length ? dropList.slice().reverse().map(x => `<div class="meal"><div class="grow"><div class="b">${esc(x.name)}</div><div class="mut xs">${x.why === 'rating' ? 'słaba ocena' + (x.avg ? ' (' + String(x.avg).replace('.', ',') + ')' : '') : esc(x.why)} · ${esc(fmtDay(ymd(new Date(x.t))))}</div></div><button class="sm" data-act="restoreRec" data-id="${x.rid}">Przywróć</button></div>`).join('') : '<div class="mut sm">Nic nie wypadło. Dania z oceną „niedobre" (1) albo dwiema słabymi ocenami wypadają tutaj.</div>'}</div>`;
     h += `<div class="chips" style="margin:10px 0">${[['', 'Wszystkie'], ['breakfast', 'Śniadania'], ['lunch', 'Na uczelnię'], ['dinner', 'Obiadokolacje'], ['snack', 'Przekąski']].map(([k, l]) => `<button class="sm ${UI.slotFilter === k ? 'sel' : ''}" data-act="sfilter" data-k="${k}">${l}</button>`).join('')}</div><div class="cards">`;
     const f = r => (!UI.slotFilter || r.slots.includes(UI.slotFilter)) && (UI.showDropped ? isBanned(r) : !isBanned(r)) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
@@ -439,7 +440,7 @@ function viewRec(id, serv = 1, ctx) {
   modal(r.name, `<div class="mut sm">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${mine ? 'Twoja porcja: ' : 'porcja standardowa: '}${macroLine(m)} · ${money(recipeCost(r) * serv)}</div><div style="margin:6px 0">${tagHtml(r)} ${cleanBadge(r)}</div>
     <h2 style="margin-top:12px">Składniki ${mine ? 'na Twoją porcję' : 'na 1 porcję'}</h2>${r.items.map(x => { const i = ing(x.ing), a = cookQty(x.amt * serv, i ? i.unit : 'g'); return i ? `<div class="row sp sm" style="padding:5px 0;border-top:1px solid var(--line)"><span>${esc(i.name)}${i.nl ? ` <span class="mut xs">(${esc(i.nl)})</span>` : ''}${(i.pantry || 0) >= a ? ' <span class="tag">masz w domu</span>' : ''}</span><b>${fmtAmt(a, i.unit)}</b></div>` : ''; }).join('')}
     ${r.how ? `<h2 style="margin-top:14px">Jak zrobić</h2>${howHtml(r.how)}` : ''}${r.prep ? `<div class="sm" style="margin-top:8px"><b>Z wyprzedzeniem:</b> ${esc(r.prep)}</div>` : ''}`,
-    [r.combo ? { label: 'Zapisz jako mój przepis', fn: () => saveCombo(r) } : { label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : []), { label: 'Lubię', fn: () => { learn(id, 2, 'like'); save(); toast('Zapamiętane – będę proponować więcej takich dań'); } }, { label: 'Nie lubię…', cls: 'danger', fn: () => dislikeDialog(id) }]);
+    [r.combo ? { label: 'Zapisz jako mój przepis', fn: () => saveCombo(r) } : { label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : []), ...(!r.combo && frozenVariant(r) && !S.recipes.some(x => x.name === r.name + ' (z mrożonek)') ? [{ label: 'Zrób wersję z mrożonek', fn: () => { closeModal(); withUndo(() => { addFrozenVariants(id); return 'Dodano wersję z mrożonek – szukaj w Jedzenie'; }); } }] : []), { label: 'Lubię', fn: () => { learn(id, 2, 'like'); save(); toast('Zapamiętane – będę proponować więcej takich dań'); } }, { label: 'Nie lubię…', cls: 'danger', fn: () => dislikeDialog(id) }]);
 }
 
 function editIng(id, opts = {}) {
@@ -731,6 +732,7 @@ const ACTIONS = {
     if (dropped) autoReplace(slot === 'breakfast' ? 'breakfast' : slot === 'lunch' ? 'lunch' : 'dinner');
   },
   claudeNew: () => claudeNewDialog(),
+  frozenAll: () => withUndo(() => { const n = addFrozenVariants(); return n ? `Dodano ${n} wersji z mrożonek (bez krojenia i rozmrażania)` : 'Wszystkie przepisy mają już wersje z mrożonek albo nie mają mrożonych odpowiedników'; }),
   showDropped: () => { UI.showDropped = !UI.showDropped; render(); },
   restoreRec: ds => withUndo(() => { restoreDropped(ds.id); return 'Przepis wrócił do bazy'; }),
   welcomeOk: () => { S.welcomeSeen = true; save(); render(); },

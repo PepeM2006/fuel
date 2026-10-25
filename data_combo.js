@@ -22,6 +22,8 @@ const COMBO = {
     bonen: { n: 'czarna fasola', amt: 180, how: 'Fasolę odsącz, przepłucz i podgrzej 5 minut z przyprawą (kumin, papryka).', prep: '' },
     witteb: { n: 'biała fasola', amt: 180, how: 'Fasolę odsącz, przepłucz i podgrzej 5 minut z ziołami.', prep: '' },
     tonijn: { n: 'tuńczyk', amt: 150, how: 'Tuńczyka odsącz i rozdrobnij widelcem.', prep: '' },
+    kip_fr: { n: 'kurczak z mrożonki', amt: 170, how: 'Kurczaka z mrożonki rozmroź w mikrofali (program rozmrażania) albo w lodówce przez noc, potem usmaż 8–10 minut.', prep: '' },
+    zalm_fr: { n: 'łosoś z mrożonki', amt: 140, how: 'Mrożonego łososia możesz piec prosto z zamrażarki w 200°C ok. 20 minut.', prep: '' },
   },
   c: {
     rijst: { n: 'ryż', amt: 85, how: 'Ryż przepłucz i gotuj wg opakowania, ok. 25 minut.', prep: 'Ugotuj ryż na 2–3 dni' },
@@ -33,6 +35,8 @@ const COMBO = {
     boekweit: { n: 'kasza gryczana', amt: 75, how: 'Kaszę gotuj 15 minut w dwukrotnej ilości wody.', prep: 'Ugotuj kaszę na 2–3 dni' },
     parelgort: { n: 'kasza jęczmienna', amt: 80, how: 'Kaszę gotuj 25–30 minut.', prep: 'Ugotuj kaszę na 2–3 dni' },
     brood: { n: 'chleb', amt: 100, how: 'Chleb pokrój w kromki.', prep: '', lunchOnly: true },
+    zoete_fr: { n: 'mrożone bataty', amt: 250, how: 'Mrożone kostki batata piecz w 200°C ok. 25 minut – bez rozmrażania.', prep: '' },
+    aardappel_fr: { n: 'mrożone ziemniaki', amt: 280, how: 'Mrożone kostki ziemniaków piecz w 200°C 25–30 minut albo smaż na patelni 12 minut.', prep: '' },
   },
   v: {
     broccoli: { n: 'brokuły', amt: 170, how: 'Brokuły podziel na różyczki i gotuj na parze 5 minut.' },
@@ -52,10 +56,20 @@ const COMBO = {
     prei: { n: 'por', amt: 150, how: 'Por pokrój w półplasterki i podsmaż 6 minut.' },
     komkommer: { n: 'ogórek', amt: 120, how: 'Ogórka pokrój (na surowo).', raw: true },
     rucola: { n: 'rukola', amt: 50, how: 'Rukolę dodaj na surowo przed jedzeniem.', raw: true },
+    broccoli_fr: { n: 'mrożone brokuły', amt: 170, how: 'Mrożone brokuły gotuj na parze albo w mikrofali 5–6 minut.' },
+    bloemkool_fr: { n: 'mrożony kalafior', amt: 220, how: 'Mrożony kalafior gotuj 6–8 minut albo piecz w 200°C 20 minut.' },
+    sperzie_fr: { n: 'mrożona fasolka', amt: 180, how: 'Mrożoną fasolkę szparagową gotuj 6 minut.' },
+    paprika_fr: { n: 'mrożona papryka', amt: 130, how: 'Mrożoną paprykę smaż 6 minut.' },
+    champ_fr: { n: 'mrożone pieczarki', amt: 150, how: 'Mrożone pieczarki smaż 7 minut.' },
+    courgette_fr: { n: 'mrożona cukinia', amt: 200, how: 'Mrożoną cukinię smaż 5 minut.' },
+    spruit_fr: { n: 'mrożona brukselka', amt: 180, how: 'Mrożoną brukselkę piecz w 200°C 25 minut.' },
+    wortel_fr: { n: 'mrożona marchew', amt: 160, how: 'Mrożoną marchew gotuj 7 minut.' },
+    butternut_fr: { n: 'mrożona dynia', amt: 220, how: 'Mrożoną dynię piecz w 200°C 25 minut.' },
+    mais_fr: { n: 'mrożona kukurydza', amt: 100, how: 'Mrożoną kukurydzę podgrzej 3 minuty (albo zalej wrzątkiem).' },
   },
   x: {   // optional topping / sauce
     feta: { n: 'fetą', amt: 30 }, kaas: { n: 'żółtym serem', amt: 25 }, pompoen: { n: 'pestkami dyni', amt: 15 }, amandel: { n: 'migdałami', amt: 15 },
-    avocado: { n: 'awokado', amt: 0.5 }, griek: { n: 'jogurtem greckim', amt: 60 }, tahin: { n: 'tahini', amt: 12 }, mozz: { n: 'mozzarellą', amt: 40 },
+    avocado: { n: 'awokado', amt: 0.5 }, avocado_fr: { n: 'mrożonym awokado', amt: 40 }, griek: { n: 'jogurtem greckim', amt: 60 }, tahin: { n: 'tahini', amt: 12 }, mozz: { n: 'mozzarellą', amt: 40 },
   },
 };
 /* fast, handed-over-to-the-bag choices for the university lunch (no cooking at 7 a.m.) */
