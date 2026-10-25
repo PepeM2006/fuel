@@ -23,6 +23,7 @@ const AI_TOOLS = [
   { name: 'generate_week', description: 'Generuje plan tygodnia (tylko dni od dziś). keep_existing=true uzupełnia tylko puste sloty.', input_schema: { type: 'object', properties: { week_start: { type: 'string' }, keep_existing: { type: 'boolean' } } } },
   { name: 'get_shopping_list', description: 'Lista zakupów na tydzień (po odjęciu spiżarni) z kosztem.', input_schema: { type: 'object', properties: { week_start: { type: 'string' } } } },
   { name: 'add_to_pantry', description: 'Dodaje składnik do lodówki/spiżarni (to, co użytkownik już ma w domu). Planer zużyje to najpierw, a lista zakupów odliczy.', input_schema: { type: 'object', required: ['ingredient', 'amount'], properties: { ingredient: { type: 'string' }, amount: { type: 'number' }, expires: { type: 'string', description: 'data ważności RRRR-MM-DD (opcjonalnie)' } } } },
+  { name: 'set_preference', description: 'Zapamiętuje, czego użytkownik nie chce albo co lubi. type: ingredient|kind|recipe; action: ban (nigdy nie używaj), allow (przywróć), like, dislike. kind: soup, salad, wrap, sandwich, porridge, fish, veggie, stew, pasta, shake.', input_schema: { type: 'object', required: ['type', 'name', 'action'], properties: { type: { type: 'string', enum: ['ingredient', 'kind', 'recipe'] }, name: { type: 'string' }, action: { type: 'string', enum: ['ban', 'allow', 'like', 'dislike'] } } } },
   { name: 'get_fridge', description: 'Co użytkownik ma w domu (ilości i daty ważności).', input_schema: { type: 'object', properties: {} } },
   { name: 'suggest_from_fridge', description: 'Przepisy, które da się zrobić z tego, co jest w lodówce (z procentem pokrycia i brakami).', input_schema: { type: 'object', properties: {} } },
   { name: 'log_food', description: 'Loguje zjedzone jedzenie (poza planem).', input_schema: { type: 'object', required: ['name', 'kcal'], properties: { date: { type: 'string' }, name: { type: 'string' }, kcal: { type: 'number' }, protein: { type: 'number' }, carbs: { type: 'number' }, fat: { type: 'number' }, slot: { type: 'string' } } } },
@@ -84,6 +85,12 @@ const AI_RUN = {
   },
   generate_week: a => { const w = wkOf(a), warn = generate(w, { keep: !!a.keep_existing }); return ok({ warnings: warn, plan: planSummary(w) }); },
   get_shopping_list: a => { const rows = shopSorted(shopList(wkOf(a))); return { store: S.profile.store, items: rows.map(r => ({ item: r.i.name, nl: r.i.nl, aisle: r.i.aisle, exact_need: fmtAmt(r.exact, r.i.unit), packs: r.packs ? `${r.packs} x ${fmtAmt(r.i.pack, r.i.unit)}` : null, freeze_part: r.freeze || undefined, cost_eur: r1(r.cost) })), total_eur: r1(rows.reduce((x, r) => x + r.cost, 0)) }; },
+  set_preference: a => {
+    const p = S.prefs;
+    if (a.type === 'ingredient') { const i = findIng(a.name); if (!i) return fail('Nie ma takiego składnika'); if (a.action === 'ban') applyBans([...p.banIng, i.id], p.banKind); else if (a.action === 'allow') applyBans(p.banIng.filter(x => x !== i.id), p.banKind); else p.score['i:' + i.id] = Math.max(-6, Math.min(6, (p.score['i:' + i.id] || 0) + (a.action === 'like' ? 2 : -2))); return ok({ ingredient: i.name, action: a.action }); }
+    if (a.type === 'kind') { const k = Object.keys(KINDS).find(x => x === a.name || norm(KINDS[x].n).includes(norm(a.name))); if (!k) return fail('Nieznany rodzaj. Dostępne: ' + Object.keys(KINDS).join(', ')); if (a.action === 'ban') applyBans(p.banIng, [...p.banKind, k]); else if (a.action === 'allow') applyBans(p.banIng, p.banKind.filter(x => x !== k)); else p.score['k:' + k] = Math.max(-6, Math.min(6, (p.score['k:' + k] || 0) + (a.action === 'like' ? 2 : -2))); return ok({ kind: KINDS[k].n, action: a.action }); }
+    const r = findRec(a.name); if (!r) return fail('Nie znaleziono przepisu'); if (a.action === 'ban') { p.banRec.push(r.id); fixPlanSlots(); } else if (a.action === 'allow') p.banRec = p.banRec.filter(x => x !== r.id); else learn(r.id, a.action === 'like' ? 2 : -2, 'ai'); return ok({ recipe: r.name, action: a.action });
+  },
   get_fridge: () => pantryItems().map(i => ({ item: i.name, amount: fmtAmt(i.pantry, i.unit), expires: i.pantryExp || null })),
   suggest_from_fridge: () => pantryIdeas(6).map(x => ({ recipe: x.r.name, slots: x.r.slots, covered_percent: r0(x.cover * 100), missing: x.missing })),
   add_to_pantry: a => { const i = findIng(a.ingredient); if (!i) return fail('Nie ma składnika'); i.pantry = (i.pantry || 0) + a.amount; if (a.expires) i.pantryExp = a.expires; return ok({ pantry: i.pantry }); },
@@ -97,12 +104,17 @@ function runTool(name, input) {
   catch (e) { return fail(String(e.message || e)); }
 }
 
+function prefsLine() {
+  const p = S.prefs; if (!p) return '';
+  const bi = p.banIng.map(id => ing(id)).filter(Boolean).map(i => i.name), bk = p.banKind.map(k => KINDS[k] && KINDS[k].n).filter(Boolean), t = tasteSummary();
+  return `\nPREFERENCJE UŻYTKOWNIKA – respektuj je zawsze: NIE używaj składników: ${bi.join(', ') || 'brak'}; NIE proponuj rodzajów dań: ${bk.join(', ') || 'brak'}. Lubi (wg wyborów): ${t.likeIng.slice(0, 5).map(x => x[0]).join(', ') || '—'}; ${t.likeKind.slice(0, 3).map(x => x[0]).join(', ')}. Unika: ${t.dislikeIng.slice(0, 5).map(x => x[0]).join(', ') || '—'}.`;
+}
 function aiSystem() {
   const p = S.profile, t = targets(today());
   return `Jesteś asystentem żywieniowym wbudowanym w aplikację Fuel. Użytkownik to student mieszkający w Holandii, robi lekki bulk, trenuje na siłowni, ma mało czasu na gotowanie i dzieli lodówkę ze współlokatorami. Rozmawiaj po polsku, krótko i konkretnie.
 Zasady: jedzenie jak najmniej przetworzone, bez dodanego cukru; zakupy w holenderskich sklepach (${p.store}); ceny w EUR; Posiłki: śniadanie (zwykle shake do zabrania), posiłek na uczelnię (szybki albo kupny, slot "lunch") i duża obiadokolacja (slot "dinner"), gotowana raz na kilka dni. Porcje są zawsze całe (bez ułamków). Zakupy planuj tak, żeby kończyć opakowania, a świeże mięso i ryby zużywać w kilka kolejnych dni od zakupu.
 Dziś: ${today()} (${DAYFULL[wdIdx(today())]}). Użytkownik: ${p.weight} kg, ${p.height} cm, ${p.bodyFat}% tł. Cel dziś: ${r0(t.kcal)} kcal, ${r0(t.p)} g białka, ${isTrain(today()) ? 'dzień treningowy' : 'dzień wolny'}. Tydzień otwarty w aplikacji zaczyna się ${UI.week}.
-Zmian w aplikacji dokonujesz WYŁĄCZNIE narzędziami. Zanim zmienisz plan, w razie potrzeby sprawdź stan (get_state, list_recipes). Przy nowych przepisach najpierw upewnij się, że składniki istnieją (list_ingredients) i dodaj brakujące z realistycznymi makro i holenderską nazwą. Po zmianach podsumuj w 1–3 zdaniach, co zrobiłeś. Nie wymyślaj danych, których nie masz – zapytaj.`;
+Zmian w aplikacji dokonujesz WYŁĄCZNIE narzędziami. Zanim zmienisz plan, w razie potrzeby sprawdź stan (get_state, list_recipes). Przy nowych przepisach najpierw upewnij się, że składniki istnieją (list_ingredients) i dodaj brakujące z realistycznymi makro i holenderską nazwą. Po zmianach podsumuj w 1–3 zdaniach, co zrobiłeś. Nie wymyślaj danych, których nie masz – zapytaj.${prefsLine()}`;
 }
 
 async function aiSend(text) {

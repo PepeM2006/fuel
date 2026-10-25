@@ -85,7 +85,7 @@ function comboRec(id) {
 }
 /* all valid ingredient ids a combo may use, filtered by what exists / is clean / is in the chosen base set */
 function comboParts(slot, baseSet) {
-  const okIng = key => { const i = ing(key); return i && (!S.profile.clean || (i.proc || 0) < 2) && (!baseSet || baseSet.has(key)); };
+  const okIng = key => { const i = ing(key); return i && !(S.prefs && S.prefs.banIng.includes(key)) && (!S.profile.clean || (i.proc || 0) < 2) && (!baseSet || baseSet.has(key)); };
   const ids = role => Object.keys(COMBO[role]).filter(k => (slot !== 'lunch' || !COMBO_LUNCH[role] || COMBO_LUNCH[role].includes(k)) && (slot === 'lunch' || !COMBO[role][k].lunchOnly) && okIng(k));
   return { p: ids('p'), c: ids('c'), v: ids('v'), x: Object.keys(COMBO.x).filter(okIng) };
 }

@@ -206,7 +206,7 @@ function ideaPlan(rid) {
   const days = Array.from({ length: 7 }, (_, k) => addDays(today(), k)), slots = r.slots.filter(s => SL().includes(s));
   modal(`Do planu: ${r.name}`, `<div class="grid2"><div><label>Dzień</label><select id="ip_d">${days.map(d => `<option value="${d}">${esc(fmtDay(d))}</option>`).join('')}</select></div><div><label>Posiłek</label><select id="ip_s">${slots.map(s => `<option value="${s}">${SLOT_PL[s]}</option>`).join('')}</select></div></div>
     <div class="mut xs" style="margin-top:8px">Wielkość porcji dobiorę do Twojego celu kalorii.</div>`,
-    [{ label: 'Dodaj do planu', cls: 'pri', fn: () => { const d = val('ip_d'), s = val('ip_s'), m = recipeMacros(r); if (!slots.length) return toast('Ten przepis nie pasuje do żadnego z Twoich posiłków'); closeModal(); UI.week = weekStart(d); withUndo(() => { swapMeal(d, s, r.id, clampServ(targets(d).kcal * shareOf(s) / m.kcal)); return `Dodano: ${SLOT_PL[s]} ${fmtDay(d)}`; }); } }]);
+    [{ label: 'Dodaj do planu', cls: 'pri', fn: () => { const d = val('ip_d'), s = val('ip_s'), m = recipeMacros(r); if (!slots.length) return toast('Ten przepis nie pasuje do żadnego z Twoich posiłków'); closeModal(); UI.week = weekStart(d); withUndo(() => { learn(r.id, 2, 'pick'); swapMeal(d, s, r.id, clampServ(targets(d).kcal * shareOf(s) / m.kcal)); return `Dodano: ${SLOT_PL[s]} ${fmtDay(d)}`; }); } }]);
 }
 
 function viewFoods() {
@@ -218,7 +218,7 @@ function viewFoods() {
   if (UI.foodsTab === 'rec') {
     h += `<div class="chips" style="margin:10px 0">${[['', 'Wszystkie'], ['breakfast', 'Śniadania'], ['lunch', 'Na uczelnię'], ['dinner', 'Obiadokolacje'], ['snack', 'Przekąski']].map(([k, l]) => `<button class="sm ${UI.slotFilter === k ? 'sel' : ''}" data-act="sfilter" data-k="${k}">${l}</button>`).join('')}</div><div class="cards">`;
     const f = r => (!UI.slotFilter || r.slots.includes(UI.slotFilter)) && (!q || norm(r.name + ' ' + r.tags.join(' ')).includes(q));
-    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="${fitServ(r)}"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="row" style="gap:2px"><span class="mut sm">${money(recipeCost(r))}</span><button class="ghost sm danger" data-act="delRec" data-id="${r.id}" aria-label="Usuń przepis">✕</button></div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
+    h += S.recipes.filter(f).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(r => { const m = recipeMacros(r); return `<div class="card rc" data-act="viewRec" data-id="${r.id}" data-serv="${fitServ(r)}"><div class="row sp"><div class="b">${esc(r.name)}</div><div class="row" style="gap:2px"><span class="mut sm">${money(recipeCost(r))}</span><button class="ghost sm danger" data-act="delRec" data-id="${r.id}" aria-label="Usuń przepis">✕</button></div></div><div class="mut xs" style="margin:3px 0 6px">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${macroLine(m)}</div><div>${isBanned(r) ? '<span class="tag warn">wykluczony</span>' : ''}${tagHtml(r)} ${cleanBadge(r)}${pantryCover(r) >= .5 ? '<span class="tag">masz w domu</span>' : ''}</div></div>`; }).join('') || '<div class="mut">Brak przepisów</div>';
     h += `</div>`;
   } else {
     h += `<div class="card" style="margin-top:10px">`;
@@ -320,6 +320,7 @@ function viewMe() {
     <ol class="xs mut" style="padding-left:18px;margin:6px 0 0"><li>Telefon i komputer w tej samej sieci Wi-Fi, a Fuel uruchomiony (start.bat).</li><li>Jeśli się nie otwiera: uruchom <b>allow-phone.bat</b> (jednorazowo) i ustaw sieć Wi-Fi jako „prywatną".</li><li>W przeglądarce telefonu: „Dodaj do ekranu głównego" – wtedy działa jak aplikacja.</li><li>Poza domem: zainstaluj darmowy <b>Tailscale</b> na komputerze i telefonie i otwórz Fuel pod adresem komputera z Tailscale (100.x.x.x:8780) – asystent Claude też wtedy działa.</li></ol></div></div></div>`;
   }
   h += syncCard();
+  h += prefsCard();
   h += storageCard();
   h += `<div class="card"><h2>Asystent Claude</h2>${cfg.mode === 'api' ? `<div class="sm">Używa klucza API (${esc(cfg.hint)}), model <b>${esc(cfg.model)}</b>.</div>` : cfg.mode === 'cli' ? '<div class="sm">Połączony z Twoim kontem Claude przez Claude Code – bez klucza API.</div>' : '<div class="sm mut">Niepołączony – przejdź do zakładki Asystent.</div>'}</div>`;
   h += `<div class="card"><h2>Dane</h2><div class="row wrap"><button data-act="export">Pobierz kopię</button><button data-act="import">Przywróć kopię</button><input type="file" id="bk" accept=".json" hidden></div>
@@ -354,16 +355,61 @@ const val = id => $('#' + id)?.value;
 function howHtml(txt) { const L = String(txt).split('\n').map(x => x.trim()).filter(Boolean); return L.length > 1 ? `<ol class="steps">${L.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<div class="sm">${esc(L[0] || '')}</div>`; }
 function optsHtml(d, s) {
   const k = d + s, rot = (UI.rot && UI.rot[k]) || 0, seen = (UI.optSeen && UI.optSeen[k]) || [], o = optionsFor(d, s, 3, rot, seen); if (!o.length) return '';
-  return `<div class="opts"><div class="olab">Inne opcje <button class="ghost sm" data-act="rotOpt" data-d="${d}" data-s="${s}">↻ pokaż inne</button></div><div class="orow">${o.map(x => { const r = rec(x.rid); return `<button class="opt" data-act="swapOpt" data-d="${d}" data-s="${s}" data-rid="${x.rid}" data-serv="${x.serv}"><b>${esc(r.name)}</b><span>${r0(x.kcal)} kcal · B${r0(x.p)}</span><span class="${x.cover >= .25 || x.nw === 0 ? 'ok' : ''}">${x.cover >= .25 ? 'masz w domu ' + r0(x.cover * 100) + '%' : x.nw === 0 ? 'bez nowych zakupów' : '+' + x.nw + ' nowe prod.'}</span></button>`; }).join('')}</div></div>`;
+  return `<div class="opts"><div class="olab">Inne opcje <button class="ghost sm" data-act="rotOpt" data-d="${d}" data-s="${s}">↻ pokaż inne</button></div><div class="orow">${o.map(x => { const r = rec(x.rid); return `<button class="opt" data-act="swapOpt" data-d="${d}" data-s="${s}" data-rid="${x.rid}" data-serv="${x.serv}"><b>${esc(r.name)}</b><span>${r0(x.kcal)} kcal · B${r0(x.p)}</span><span class="${x.pref >= 1.5 || x.cover >= .25 || x.nw === 0 ? 'ok' : ''}">${x.pref >= 1.5 ? 'lubisz takie dania' : x.cover >= .25 ? 'masz w domu ' + r0(x.cover * 100) + '%' : x.nw === 0 ? 'bez nowych zakupów' : '+' + x.nw + ' nowe prod.'}</span></button>`; }).join('')}</div></div>`;
 }
 function saveCombo(r) { S.recipes.push({ id: uid(), name: r.name, slots: r.slots.slice(), items: r.items.map(x => ({ ...x })), how: r.how, prep: r.prep, tags: r.tags.filter(t => t !== 'składane').concat('własny') }); save(); toast('Zapisano w Twoich przepisach (Jedzenie → Przepisy)'); }
+function dislikeDialog(rid) {
+  const r = rec(rid); if (!r) return;
+  const mains = mainIngs(r).map(x => ing(x.ing)).filter(Boolean), kinds = kindsOf(r).filter(k => k !== 'veggie');
+  modal(`Nie lubisz: ${r.name}`, `<p class="sm" style="margin-top:0">Co dokładnie? Wykluczone rzeczy nigdy się nie pojawią w planie ani w propozycjach.</p>
+    <div class="col" style="display:flex;flex-direction:column;gap:8px">
+    <button data-dis="soft">Tylko mniej takich dań (nie wykluczaj)</button>
+    <button data-dis="rec">Ten jeden przepis – nigdy więcej</button>
+    ${mains.map(i => `<button data-dis="ing:${i.id}">Składnik: ${esc(i.name.replace(/ \(.*\)/, '').toLowerCase())} – nigdy więcej</button>`).join('')}
+    ${kinds.map(k => `<button data-dis="kind:${k}">Rodzaj: ${esc(KINDS[k].n)} – nigdy więcej</button>`).join('')}</div>`, []);
+  $('#modal').onclick = e => {
+    const b = e.target.closest('[data-dis]'); if (!b) return; const v = b.dataset.dis, p = S.prefs; closeModal();
+    withUndo(() => {
+      if (v === 'soft') { learn(rid, -2.5, 'dislike'); return 'Zapamiętane – będzie mniej takich dań'; }
+      if (v === 'rec') { p.banRec.push(rid); fixPlanSlots(); return 'Ten przepis już się nie pojawi'; }
+      if (v.startsWith('ing:')) { applyBans([...p.banIng, v.slice(4)], p.banKind); return 'Ten składnik już się nie pojawi'; }
+      applyBans(p.banIng, [...p.banKind, v.slice(5)]); return 'Ten rodzaj dań już się nie pojawi';
+    });
+  };
+}
+function prefsDialog() {
+  const p = S.prefs, covered = new Set(PREF_GROUPS.flatMap(g => g.ing || []));
+  const checked = g => g.kind ? p.banKind.includes(g.kind) : g.ing.every(i => p.banIng.includes(i));
+  const extra = p.banIng.filter(i => !covered.has(i) && ing(i));
+  modal('Czego nie jesz?', `<p class="sm" style="margin-top:0">Zaznacz to, czego <b>nigdy</b> nie chcesz widzieć w planie i propozycjach. Resztę Fuel nauczy się z tego, co wybierasz.</p>
+    <div class="chips">${PREF_GROUPS.map((g, k) => `<label class="row chk chip"><input type="checkbox" data-pg="${k}" ${checked(g) ? 'checked' : ''}> ${esc(g.n)}</label>`).join('')}</div>
+    ${extra.length ? `<h2 style="margin-top:12px">Inne wykluczone składniki</h2><div class="chips">${extra.map(i => `<label class="row chk chip"><input type="checkbox" data-px="${i}" checked> ${esc(ing(i).name.replace(/ \(.*\)/, '').toLowerCase())}</label>`).join('')}</div>` : ''}
+    <label>Wyklucz inny składnik</label><select id="pf_add"><option value="">— wybierz —</option>${S.ingredients.filter(i => !p.banIng.includes(i.id) && !covered.has(i.id)).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select>`,
+    [{ label: 'Zapisz', cls: 'pri', fn: () => {
+      let bi = [...$$('[data-px]').filter(x => x.checked).map(x => x.dataset.px)], bk = [];
+      $$('[data-pg]').forEach(x => { if (!x.checked) return; const g = PREF_GROUPS[+x.dataset.pg]; if (g.kind) bk.push(g.kind); else bi.push(...g.ing); });
+      if (val('pf_add')) bi.push(val('pf_add'));
+      closeModal(); withUndo(() => { const n = applyBans(bi, bk); S.prefsAsked = true; return n ? 'Zapisane – usunąłem takie dania z planu i uzupełniłem inne' : 'Zapisane'; });
+    } }]);
+}
+function prefsCard() {
+  const p = S.prefs, t = tasteSummary(), top = (arr, n = 5) => arr.slice(0, n).map(x => esc(x[0])).join(', ') || '—';
+  const bans = [...p.banKind.map(k => KINDS[k] && KINDS[k].n), ...p.banIng.map(i => ing(i) && ing(i).name.replace(/ \(.*\)/, '').toLowerCase()), ...p.banRec.map(r => rec(r) && rec(r).name)].filter(Boolean);
+  return `<div class="card"><h2>Moje preferencje</h2>
+    <div class="sm">Fuel uczy się z Twoich wyborów: co wybierasz, jesz i zamieniasz. Wykluczone rzeczy nigdy się nie pojawią.</div>
+    <div class="sm" style="margin-top:8px"><b>Nie jem:</b> ${bans.length ? bans.map(b => `<span class="tag warn">${esc(b)}</span>`).join(' ') : '<span class="mut">nic nie wykluczono</span>'}</div>
+    <div class="sm" style="margin-top:6px"><b>Lubisz:</b> ${top([...t.likeKind, ...t.likeIng].sort((a, b) => b[1] - a[1]))}</div>
+    <div class="sm"><b>Unikasz:</b> ${top([...t.dislikeKind, ...t.dislikeIng].sort((a, b) => a[1] - b[1]))}</div>
+    <label class="row chk" style="margin-top:8px"><input type="checkbox" data-bind="prefs.learn" ${p.learn ? 'checked' : ''}> Ucz się z moich wyborów</label>
+    <div class="row wrap" style="margin-top:8px"><button class="sm pri" data-act="prefsEdit">Zmień wykluczenia</button><button class="sm" data-act="prefsAnalyze">Przeanalizuj moje wybory</button><button class="sm danger" data-act="prefsReset">Wyczyść naukę</button></div></div>`;
+}
 function viewRec(id, serv = 1, ctx) {
   const r = rec(id); if (!r) return;
   const m = addM(ZERO(), recipeMacros(r), serv), mine = serv !== 1 || ctx;
   modal(r.name, `<div class="mut sm">${r.slots.map(s => SLOT_PL[s]).join(' / ')} · ${mine ? 'Twoja porcja: ' : 'porcja standardowa: '}${macroLine(m)} · ${money(recipeCost(r) * serv)}</div><div style="margin:6px 0">${tagHtml(r)} ${cleanBadge(r)}</div>
     <h2 style="margin-top:12px">Składniki ${mine ? 'na Twoją porcję' : 'na 1 porcję'}</h2>${r.items.map(x => { const i = ing(x.ing), a = cookQty(x.amt * serv, i ? i.unit : 'g'); return i ? `<div class="row sp sm" style="padding:5px 0;border-top:1px solid var(--line)"><span>${esc(i.name)}${i.nl ? ` <span class="mut xs">(${esc(i.nl)})</span>` : ''}${(i.pantry || 0) >= a ? ' <span class="tag">masz w domu</span>' : ''}</span><b>${fmtAmt(a, i.unit)}</b></div>` : ''; }).join('')}
     ${r.how ? `<h2 style="margin-top:14px">Jak zrobić</h2>${howHtml(r.how)}` : ''}${r.prep ? `<div class="sm" style="margin-top:8px"><b>Z wyprzedzeniem:</b> ${esc(r.prep)}</div>` : ''}`,
-    [r.combo ? { label: 'Zapisz jako mój przepis', fn: () => saveCombo(r) } : { label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : [])]);
+    [r.combo ? { label: 'Zapisz jako mój przepis', fn: () => saveCombo(r) } : { label: 'Edytuj przepis', fn: () => editRec(id) }, ...(ctx ? [{ label: 'Zmień posiłek', cls: 'pri', fn: () => editSlot(ctx.d, ctx.s) }] : []), { label: 'Lubię', fn: () => { learn(id, 2, 'like'); save(); toast('Zapamiętane – będę proponować więcej takich dań'); } }, { label: 'Nie lubię…', cls: 'danger', fn: () => dislikeDialog(id) }]);
 }
 
 function editIng(id, opts = {}) {
@@ -499,14 +545,14 @@ function editSlot(d, s) {
     <label class="row chk"><input type="checkbox" id="s_l" ${it.locked ? 'checked' : ''}> Przypnij (generowanie tygodnia tego nie ruszy)</label>
     <label class="row chk"><input type="checkbox" id="s_k" ${it.skipped ? 'checked' : ''}> Pomiń ten posiłek (nie wchodzi na listę zakupów)</label>
     ${days.length > 1 ? `<label class="row chk"><input type="checkbox" id="es_block"> Zastosuj do całego bloku gotowania (${DAYN[wdIdx(days[0])]}–${DAYN[wdIdx(days[days.length - 1])]})</label>` : ''}` : ''}`,
-    r ? [{ label: 'Zapisz', cls: 'pri', fn: () => withUndo(() => { const tdays = ($('#es_block') && $('#es_block').checked) ? days : [d]; for (const x of tdays) { const y = (S.plan[x] || {})[s]; if (!y) continue; y.serv = draft.serv; y.locked = $('#s_l').checked; y.skipped = $('#s_k').checked; } closeModal(); return 'Zapisano zmiany posiłku'; }) }] : []);
+    r ? [{ label: 'Zapisz', cls: 'pri', fn: () => withUndo(() => { const tdays = ($('#es_block') && $('#es_block').checked) ? days : [d]; for (const x of tdays) { const y = (S.plan[x] || {})[s]; if (!y) continue; y.serv = draft.serv; y.locked = $('#s_l').checked; if ($('#s_k').checked && !y.skipped) learn(y.rid, -1, 'skipped'); y.skipped = $('#s_k').checked; } closeModal(); return 'Zapisano zmiany posiłku'; }) }] : []);
   const m = $('#modal');
   m.onclick = e => {
     const pr = e.target.closest('[data-pickrid]'), es = e.target.closest('[data-es]');
-    if (pr) { const rid = pr.dataset.pickrid, sv = +pr.dataset.serv; closeModal(); withUndo(() => { swapMeal(d, s, rid, sv); UI.optSeen && delete UI.optSeen[d + s]; return 'Zmieniono posiłek'; }); return; }
+    if (pr) { const rid = pr.dataset.pickrid, sv = +pr.dataset.serv; closeModal(); withUndo(() => { const old = (S.plan[d] || {})[s]; learn(rid, 2, 'pick'); if (old && !old.locked && old.rid !== rid) learn(old.rid, -.8, 'swapped away'); swapMeal(d, s, rid, sv); UI.optSeen && delete UI.optSeen[d + s]; return 'Zmieniono posiłek'; }); return; }
     if (!es) return; const act = es.dataset.es;
-    if (act === 'regen') { closeModal(); withUndo(() => { const w = regenSlot(d, s); return w.length ? w[0] : 'Wylosowano inny posiłek'; }); }
-    else if (act === 'clear') { closeModal(); withUndo(() => { delete (S.plan[d] || {})[s]; return 'Usunięto posiłek'; }); }
+    if (act === 'regen') { closeModal(); withUndo(() => { if (it) learn(it.rid, -1, 'redraw'); const w = regenSlot(d, s); return w.length ? w[0] : 'Wylosowano inny posiłek'; }); }
+    else if (act === 'clear') { closeModal(); withUndo(() => { if (it) learn(it.rid, -1.5, 'removed'); delete (S.plan[d] || {})[s]; return 'Usunięto posiłek'; }); }
     else if (act === 'smaller' || act === 'bigger') { draft.serv = clampServ(draft.serv + (act === 'bigger' ? .25 : -.25)); $('#es_info').textContent = info(); }
   };
   m.oninput = e => { if (e.target.id === 'es_q') $('#es_list').innerHTML = results(e.target.value); };
@@ -516,7 +562,7 @@ function setEatenReset(it) { for (const [id, q] of Object.entries(it.used || {})
 function basePicker() {
   const wk = UI.week, sel = new Set(S.bases[wk] || []);
   const roles = [['p', 'Białko'], ['c', 'Baza węglowodanowa'], ['v', 'Warzywa'], ['x', 'Dodatki (opcjonalne)']];
-  const sec = ([role, title]) => `<h2 style="margin-top:12px">${title}</h2><div class="chips">${Object.keys(COMBO[role]).filter(k => ing(k)).map(k => `<label class="row chk chip"><input type="checkbox" data-base="${k}" ${sel.has(k) ? 'checked' : ''}> ${esc(ing(k).name.replace(/ \(.*\)/, '').toLowerCase())}</label>`).join('')}</div>`;
+  const sec = ([role, title]) => `<h2 style="margin-top:12px">${title}</h2><div class="chips">${Object.keys(COMBO[role]).filter(k => ing(k) && !S.prefs.banIng.includes(k)).map(k => `<label class="row chk chip"><input type="checkbox" data-base="${k}" ${sel.has(k) ? 'checked' : ''}> ${esc(ing(k).name.replace(/ \(.*\)/, '').toLowerCase())}</label>`).join('')}</div>`;
   const read = () => $$('[data-base]').filter(x => x.checked).map(x => x.dataset.base);
   const sum = () => { const ids = new Set(read()), el = $('#bs_sum'); if (!el) return; el.innerHTML = ids.size ? `Wybrane: <b>${ids.size}</b> produktów · możliwych obiadokolacji: <b>${comboPool('dinner', wk, ids, 9999).length}</b> · na uczelnię: <b>${comboPool('lunch', wk, ids, 9999).length}</b>` : 'Nic nie wybrano – użyję wszystkich produktów i przepisów.'; };
   const set = ids => { const s = new Set(ids); $$('[data-base]').forEach(x => x.checked = s.has(x.dataset.base)); sum(); };
@@ -622,7 +668,7 @@ function onboarding() {
     { label: 'Zapisz', cls: 'pri', fn: () => {
       const bf = num(val('ob_bf'));
       Object.assign(S.profile, { weight: num(val('ob_w')) || p.weight, height: num(val('ob_h')) || p.height, age: num(val('ob_a')) || p.age, bodyFat: bf >= 3 && bf <= 50 ? bf : 0, surplus: +val('ob_g'), trainDays: $$('.ob_d').filter(x => x.checked).map(x => +x.value), store: val('ob_s'), budget: num(val('ob_b')), prepDays: +val('ob_p') });
-      S.profileSet = true; save(); closeModal(); render(); toast('Zapisane – teraz wygeneruj swój pierwszy tydzień');
+      S.profileSet = true; save(); closeModal(); render(); toast('Zapisane – teraz wygeneruj swój pierwszy tydzień'); setTimeout(prefsDialog, 400);
     } }]);
 }
 
@@ -634,6 +680,15 @@ const ACTIONS = {
   planNext: () => { UI.week = addDays(weekStart(today()), 7); UI.view = 'plan'; render(); window.scrollTo(0, 0); },
   shopNext: () => { UI.week = addDays(weekStart(today()), 7); UI.view = 'shop'; render(); window.scrollTo(0, 0); },
   delRec: ds => withUndo(() => { const x = removeRecipe(ds.id); return `Usunięto: ${x ? x.name : 'przepis'}`; }),
+  prefsEdit: prefsDialog,
+  prefsAnalyze: () => {
+    const n = analyzeHistory(), t = tasteSummary(), list = (a, k = 6) => a.slice(0, k).map(x => `${esc(x[0])} (${x[1] > 0 ? '+' : ''}${(Math.round(x[1] * 10) / 10).toString().replace('.', ',')})`).join(', ') || '—';
+    save(); modal('Co o Tobie wiem', `<div class="sm">${n ? `Przejrzałem ${n} wcześniejszych wyborów z planu. ` : 'Nie znalazłem nowych wcześniejszych wyborów do przejrzenia (liczą się dania, które wybrałeś ręcznie albo zjadłeś). '}Od teraz uczę się na bieżąco.</div>
+      <h2 style="margin-top:12px">Lubisz</h2><div class="sm">${list([...t.likeKind, ...t.likeIng, ...t.likeRec].sort((a, b) => b[1] - a[1]))}</div>
+      <h2 style="margin-top:12px">Unikasz</h2><div class="sm">${list([...t.dislikeKind, ...t.dislikeIng, ...t.dislikeRec].sort((a, b) => a[1] - b[1]))}</div>
+      <div class="mut xs" style="margin-top:10px">Plusy rosną, gdy wybierasz albo jedz dania, minusy – gdy je zamieniasz, usuwasz albo pomijasz.</div>`, []);
+  },
+  prefsReset: () => { if (!confirm('Wyczyścić wszystko, czego Fuel nauczył się z Twoich wyborów? (Wykluczenia zostają.)')) return; S.prefs.score = {}; S.prefs.log = []; save(); render(); toast('Wyczyszczono naukę'); },
   welcomeOk: () => { S.welcomeSeen = true; save(); render(); },
   snapRestore: async ds => { const json = await idbGet(ds.k); if (!json) return toast('Nie mogę wczytać tej wersji'); let d; try { d = JSON.parse(json); } catch (e) { return toast('Ta wersja jest uszkodzona'); } withUndo(() => { const rev = S.rev, chat = S.chat; S = d; S.rev = rev; S.chat = S.chat || chat; migrate(); return 'Przywrócono wersję z ' + new Date(+String(ds.k).slice(5)).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }); },
   undo: () => { if (UI.undoFn) { UI.undoFn(); UI.undoFn = null; } },
@@ -643,7 +698,7 @@ const ACTIONS = {
   dayToday: () => { UI.date = today(); render(); },
   week: ds => { UI.week = addDays(UI.week, 7 * +ds.n); render(); },
   toggleTrain: () => { const d = UI.date, w = S.workouts[d]; S.workouts[d] = { ...(w || {}), done: !isTrain(d), manual: true }; save(); render(); toast(isTrain(d) ? 'Dzień treningowy – cel podniesiony' : 'Dzień wolny – cel obniżony'); },
-  eat: (ds, el) => { setEaten(ds.d, ds.s, el.checked); save(); render(); },
+  eat: (ds, el) => { setEaten(ds.d, ds.s, el.checked); const it = S.plan[ds.d][ds.s]; if (it && it.eaten && !it.learnedEat) { learn(it.rid, 1, 'ate'); it.learnedEat = true; } save(); render(); },
   viewMeal: ds => { const it = (S.plan[ds.d] || {})[ds.s]; if (live(it)) viewRec(it.rid, it.serv, { d: ds.d, s: ds.s }); },
   viewRec: ds => viewRec(ds.id, +ds.serv || 1),
   delLog: ds => withUndo(() => { removeLog(ds.d, ds.id); return 'Usunięto wpis'; }),
@@ -655,8 +710,8 @@ const ACTIONS = {
   genDay: ds => withUndo(() => { generate(UI.week, { only: ds.d }); return 'Wylosowano ten dzień'; }),
   clearWeek: () => withUndo(() => { for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(UI.week, i)]; if (dp) for (const s of SLOTS_ALL) if (dp[s] && !dp[s].eaten) delete dp[s]; } return 'Plan wyczyszczony'; }),
   editSlot: ds => editSlot(ds.d, ds.s),
-  swapOpt: ds => { closeModal(); withUndo(() => { swapMeal(ds.d, ds.s, ds.rid, +ds.serv); if (UI.optSeen) delete UI.optSeen[ds.d + ds.s]; return 'Zmieniono posiłek'; }); },
-  rotOpt: ds => { const k = ds.d + ds.s; UI.rot = UI.rot || {}; UI.optSeen = UI.optSeen || {}; const rot = UI.rot[k] || 0, seen = UI.optSeen[k] || []; UI.optSeen[k] = seen.concat(optionsFor(ds.d, ds.s, 3, rot, seen).map(x => x.rid)); UI.rot[k] = rot + 1; if ($('#modal').open) { const q = ds.d, w = ds.s; closeModal(); editSlot(q, w); } else render(); },
+  swapOpt: ds => { closeModal(); withUndo(() => { const old = (S.plan[ds.d] || {})[ds.s]; learn(ds.rid, 2, 'pick'); if (old && !old.locked && old.rid !== ds.rid) learn(old.rid, -.8, 'swapped away'); swapMeal(ds.d, ds.s, ds.rid, +ds.serv); if (UI.optSeen) delete UI.optSeen[ds.d + ds.s]; return 'Zmieniono posiłek'; }); },
+  rotOpt: ds => { const k = ds.d + ds.s; UI.rot = UI.rot || {}; UI.optSeen = UI.optSeen || {}; const rot = UI.rot[k] || 0, seen = UI.optSeen[k] || []; const shown = optionsFor(ds.d, ds.s, 3, rot, seen); shown.forEach(x => learn(x.rid, -.25, 'dismissed')); UI.optSeen[k] = seen.concat(shown.map(x => x.rid)); save(); UI.rot[k] = rot + 1; if ($('#modal').open) { const q = ds.d, w = ds.s; closeModal(); editSlot(q, w); } else render(); },
   applySwap: ds => withUndo(() => { const it = S.plan[ds.d][ds.s]; it.rid = ds.rid; it.serv = +ds.serv; return 'Zamieniono danie'; }),
   ftab: ds => { UI.foodsTab = ds.t; UI.q = ''; render(); },
   ftabFridge: () => { UI.foodsTab = 'fridge'; UI.view = 'foods'; render(); window.scrollTo(0, 0); },
@@ -794,7 +849,7 @@ function handleQuery() { // https://…/?workout=Push&sets=18  (from a phone sho
   logWorkout(q.get('date') || today(), { name: q.get('workout') || 'Trening', sets: +q.get('sets') || undefined, min: +q.get('minutes') || undefined, source: 'link' });
   history.replaceState(null, '', location.pathname); save(); toast('Trening zapisany');
 }
-load().then(() => { UI.cfg = UI.cfg || {}; handleQuery(); render(); initSync(); if (!S.profileSet) setTimeout(onboarding, 350); if (!S.rev && !S.setupDone) { S.setupDone = true; save(); } loadCfg().then(() => { if (UI.view === 'ai' || UI.view === 'me') render(); }); })
+load().then(() => { UI.cfg = UI.cfg || {}; handleQuery(); render(); initSync(); if (!S.profileSet) setTimeout(onboarding, 350); else if (!S.prefsAsked) setTimeout(() => { if (!$('#modal').open) prefsDialog(); }, 900); if (!S.rev && !S.setupDone) { S.setupDone = true; save(); } loadCfg().then(() => { if (UI.view === 'ai' || UI.view === 'me') render(); }); })
   .catch(e => { $('#app').innerHTML = '<div class="card">Coś poszło nie tak przy starcie: ' + esc(e && e.message) + '</div>'; });
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => { });

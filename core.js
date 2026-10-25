@@ -36,6 +36,7 @@ function migrate() {
   const d = seedData();
   for (const k of ['plan', 'log', 'workouts', 'adjust', 'shopChecked', 'menus', 'bases', 'optSeen']) S[k] = S[k] || {};
   S.chat = S.chat || []; S.ingredients = S.ingredients || []; S.recipes = S.recipes || [];
+  S.prefs = Object.assign({ learn: true, banIng: [], banKind: [], banRec: [], score: {}, log: [] }, S.prefs || {});
   S.profile = Object.assign({}, d.profile, S.profile || {});
   if (!S.lastBackup) S.lastBackup = today();
   if (S.profileSet === undefined && (S.setupDone || S.rev > 0)) S.profileSet = true;   // existing users are not asked again
@@ -67,8 +68,10 @@ function fixPlanSlots() {
   for (const [d, dp] of Object.entries(S.plan || {})) {
     if (d < t) continue;
     for (const s of SLOTS_ALL) {
-      const it = dp[s]; if (!it || it.eaten || it.locked) continue;
-      const r = rec(it.rid); let bad = !r;
+      const it = dp[s]; if (!it || it.eaten) continue;
+      const r = rec(it.rid); let bad = !r; const hard = r && isBanned(r);
+      if (it.locked && !hard) continue;
+      if (hard) bad = true;
       if (r && isCombo(it.rid) && s !== 'lunch' && s !== 'dinner') bad = true;
       if (r && !isCombo(it.rid) && !r.slots.includes(s)) bad = true;
       if (r && s === 'lunch' && S.profile.noSpill !== false && spillable(r)) bad = true;
@@ -232,7 +235,7 @@ function optionPool(slot, week, ignoreSet = false) {
   if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || ((ing(x.ing) || {}).pantry || 0) > 0));
   if (style === 'combos') pool = pool.filter(r => (r.tags || []).includes('kupne'));
   const combos = (style === 'recipes' || (slot !== 'lunch' && slot !== 'dinner')) ? [] : comboPool(slot, week, set);
-  return pool.concat(combos);
+  return pool.concat(combos).filter(r => !isBanned(r));   // things you never want are never offered
 }
 function candidates(slot, week) {
   let c = optionPool(slot, week);
@@ -279,6 +282,7 @@ function generate(week, opts = {}) {
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
   const baseNeed = [{}, {}];
   for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
+  const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
   const pantryExp = S.ingredients.filter(i => (i.pantry || 0) > 0 && i.pantryExp && i.pantryExp <= addDays(week, 6));
@@ -295,6 +299,7 @@ function generate(week, opts = {}) {
       const key = bl.s + '|' + r.id; cnt[key] = (cnt[key] || 0) + 1;
       if (prevSet.has(r.id)) sc -= W.keep;
       sc += bigPen(sv) * bl.days.length;
+      sc -= .15 * pf(r) * bl.days.length;   // what you usually pick scores better
       if (bl.s === 'dinner') sc -= meatPref * (hasMeat(r) ? 1 : 0) * bl.days.length;   // taste: how often meat/fish for dinner
     });
     for (const k in cnt) { const rid = k.split('|')[1]; sc += (cnt[k] - 1) * W.repeat + (prevUse[rid] || 0) * .15; }
@@ -534,7 +539,7 @@ const daysLeft = i => i.pantryExp ? Math.round((parseD(i.pantryExp) - parseD(tod
 function pantryIdeas(n = 8) {
   const have = pantryItems(); if (!have.length) return [];
   const wk = weekStart(today());
-  return S.recipes.concat(comboPool('dinner', wk, null, 160), comboPool('lunch', wk, null, 80)).filter(r => r.items.length && !r.slots.every(s => s === 'snack')).map(r => {
+  return S.recipes.concat(comboPool('dinner', wk, null, 160), comboPool('lunch', wk, null, 80)).filter(r => r.items.length && !r.slots.every(s => s === 'snack') && !isBanned(r)).map(r => {
     const serv = 1, cover = pantryCover(r, serv);
     const missing = r.items.filter(x => { const i = ing(x.ing); return i && (i.pantry || 0) < x.amt * serv * .8; }).map(x => ing(x.ing).name);
     let urgent = 0; for (const x of r.items) { const i = ing(x.ing), dl = i && daysLeft(i); if (dl != null && (i.pantry || 0) > 0 && dl <= 4) urgent += 1; }
@@ -559,7 +564,8 @@ function optionsFor(d, s, n = 3, rot = 0, seen = []) {
   const scored = optionPool(s, week).filter(r => !cur || r.id !== cur.rid).map(r => {
     const m = recipeMacros(r); if (m.kcal <= 0) return null;
     const serv = clampServ(tgtK / m.kcal), got = m.kcal * serv, nw = r.items.filter(x => !have.has(x.ing) && !COMBO_STAPLES.has(x.ing)).length, cover = pantryCover(r, serv);
-    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, key: comboKey(r), sc: Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
+    const pref = prefScore(r);
+    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, key: comboKey(r), sc: - pref * .5 + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
   }).filter(Boolean);
   let fresh = scored.filter(o => !seenSet.has(o.rid));
   if (fresh.length < n) fresh = scored;                                   // everything seen: start again
@@ -670,4 +676,81 @@ function removeRecipe(id) {
   for (const dp of Object.values(S.plan)) for (const s of SLOTS_ALL) if (dp[s] && dp[s].rid === id) delete dp[s];
   for (const k in S.menus) S.menus[k] = S.menus[k].filter(x => x !== id);
   return r;
+}
+
+
+/* ============ taste: things you never want + what you usually choose ============ */
+/* kinds of dish you can switch off or like as a whole */
+const KINDS = {
+  soup: { n: 'zupy', t: r => /zup|krem z|erwtensoep/i.test(r.name) },
+  salad: { n: 'sałatki', t: r => /sałatk/i.test(r.name) },
+  wrap: { n: 'wrapy', t: r => /wrap/i.test(r.name) },
+  sandwich: { n: 'kanapki i tosty', t: r => /kanapk|tost/i.test(r.name) },
+  porridge: { n: 'owsianki i kasze na mleku', t: r => /owsiank|na mleku/i.test(r.name) },
+  fish: { n: 'ryby i owoce morza', t: r => r.items.some(x => ['zalm', 'witvis', 'garnalen', 'makreel', 'tonijn'].includes(x.ing)) },
+  veggie: { n: 'dania wegetariańskie', t: r => !r.items.some(x => { const i = ing(x.ing); return i && i.aisle === 'Mięso i ryby'; }) },
+  stew: { n: 'gulasze, curry, chili', t: r => /gulasz|curry|chili|leczo|bigos|pulpety|klopsiki/i.test(r.name) },
+  pasta: { n: 'makarony', t: r => r.items.some(x => x.ing === 'pasta') },
+  shake: { n: 'shake', t: r => (r.tags || []).includes('shake') },
+};
+const PREF_GROUPS = [
+  { n: 'zupy', kind: 'soup' }, { n: 'sałatki', kind: 'salad' }, { n: 'wrapy', kind: 'wrap' }, { n: 'ryby i owoce morza', kind: 'fish' }, { n: 'dania wegetariańskie', kind: 'veggie' }, { n: 'owsianki', kind: 'porridge' },
+  { n: 'indyk', ing: ['kalkoen', 'kalkoengehakt'] }, { n: 'tempeh', ing: ['tempeh'] }, { n: 'tofu', ing: ['tofu'] }, { n: 'soczewica', ing: ['linzen'] }, { n: 'fasola i ciecierzyca', ing: ['bonen', 'kidney', 'witteb', 'kikker'] },
+  { n: 'jajka', ing: ['eieren'] }, { n: 'awokado', ing: ['avocado'] }, { n: 'pieczarki', ing: ['champ'] }, { n: 'wołowina', ing: ['gehakt'] }, { n: 'tuńczyk z puszki', ing: ['tonijn'] },
+];
+const kindCache = new Map();
+function kindsOf(r) {
+  const key = r.id + '|' + r.name + '|' + r.items.length;
+  let v = kindCache.get(key); if (v) return v;
+  v = Object.keys(KINDS).filter(k => { try { return KINDS[k].t(r); } catch (e) { return false; } }); kindCache.set(key, v); return v;
+}
+function isBanned(r) {
+  const p = S.prefs; if (!p || !r) return false;
+  if (p.banRec.includes(r.id)) return true;
+  if (p.banIng.length && r.items.some(x => p.banIng.includes(x.ing))) return true;
+  return p.banKind.length > 0 && kindsOf(r).some(k => p.banKind.includes(k));
+}
+const mainIngs = r => r.items.filter(x => { const i = ing(x.ing); return i && !COMBO_STAPLES.has(x.ing) && i.kcal > 40; }).slice(0, 4);
+/* how much you like a dish: its own history + its main ingredients + its kinds (roughly -8..+8) */
+function prefScore(r) {
+  const p = S.prefs; if (!p || !p.learn || !r) return 0;
+  const sc = p.score; let s = sc['r:' + r.id] || 0;
+  const main = mainIngs(r); if (main.length) s += main.reduce((a, x) => a + (sc['i:' + x.ing] || 0), 0) / main.length * .8;
+  for (const k of kindsOf(r)) s += (sc['k:' + k] || 0) * .6;
+  return Math.max(-8, Math.min(8, s));
+}
+/* record a choice: +2 you picked it, +1 you ate it, -1 you swapped it away ... spreads to its main ingredients and kinds */
+function learn(rid, d, why) {
+  const p = S.prefs, r = rec(rid); if (!p || !p.learn || !r || !d) return;
+  const add = (k, v) => { p.score[k] = Math.max(-6, Math.min(6, Math.round(((p.score[k] || 0) + v) * 100) / 100)); };
+  add('r:' + rid, d);
+  for (const x of mainIngs(r)) add('i:' + x.ing, d * .35);
+  for (const k of kindsOf(r)) add('k:' + k, d * .3);
+  p.log.push({ t: Date.now(), rid, d, why: why || '' }); if (p.log.length > 300) p.log.splice(0, p.log.length - 300);
+}
+/* summary of what has been learned */
+function tasteSummary() {
+  const p = S.prefs, sc = p.score, out = { likeIng: [], dislikeIng: [], likeKind: [], dislikeKind: [], likeRec: [], dislikeRec: [] };
+  for (const [k, v] of Object.entries(sc)) {
+    const [t, id] = [k[0], k.slice(2)];
+    if (t === 'i') { const i = ing(id); if (!i) continue; (v > 0 ? out.likeIng : out.dislikeIng).push([i.name.replace(/ \(.*\)/, '').toLowerCase(), v]); }
+    else if (t === 'k') { if (!KINDS[id]) continue; (v > 0 ? out.likeKind : out.dislikeKind).push([KINDS[id].n, v]); }
+    else { const r = rec(id); if (!r) continue; (v > 0 ? out.likeRec : out.dislikeRec).push([r.name, v]); }
+  }
+  for (const k of Object.keys(out)) out[k].sort((a, b) => k.startsWith('like') ? b[1] - a[1] : a[1] - b[1]);
+  return out;
+}
+/* read past choices (pinned = you picked it, eaten = you ate it) once each */
+function analyzeHistory() {
+  let n = 0;
+  for (const dp of Object.values(S.plan || {})) for (const s of SLOTS_ALL) {
+    const it = dp[s]; if (!it || !rec(it.rid)) continue;
+    if (it.locked && !it.learnedPick) { learn(it.rid, 2, 'history'); it.learnedPick = true; n++; }
+    if (it.eaten && !it.learnedEat) { learn(it.rid, 1, 'history'); it.learnedEat = true; n++; }
+  }
+  return n;
+}
+function applyBans(banIng, banKind) {
+  S.prefs.banIng = [...new Set(banIng)]; S.prefs.banKind = [...new Set(banKind)];
+  return fixPlanSlots();
 }
