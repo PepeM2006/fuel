@@ -184,6 +184,8 @@ const LIFE_ID = { gehakt: 2, kipgehakt: 2, kalkoengehakt: 2, zalm: 2, kip: 3, ki
   kup_kanapka: 2, kup_wrap: 3, kup_salade: 3, zuurkool: 30, hummus: 10, pastinaak: 14, rodekool: 20 };
 const lifeOf = i => (i.life != null && i.life !== '' && !isNaN(+i.life)) ? +i.life : (LIFE_ID[i.id] ?? LIFE_AISLE[i.aisle] ?? 999);
 const tripOf = di => ((S.profile.shopTrips | 0) >= 2 && di >= (S.profile.trip2Day ?? 3)) ? 1 : 0;
+/* meat or fish, fresh or frozen (frozen chicken and salmon sit in the freezer aisle) */
+const isMeatIng = i => !!i && (i.aisle === 'Mięso i ryby' || (i.aisle === 'Mrożonki' && i.p >= 15));
 const SPOIL = .8, GAP = .12, PANTRY_EXP = .6;
 /* Pack-fit: the planner tries to use up whole packages by the end of the week (little waste, few different products).
    strong = finish packs (cheapest), normal = balanced, off = ignore. Dishes may change completely from week to week. */
@@ -279,6 +281,7 @@ function generate(week, opts = {}) {
     for (const run of runs) for (const b of ((s === 'lunch' || s === 'dinner') ? splitRun(run, N) : run.map(d => [d]))) blocks[s].push(b);
   }
   const bslots = slots.filter(s => blocks[s] && blocks[s].length);
+  if (blocks.dinner && cand.dinner && !cand.dinner.some(r => r.items.some(x => isMeatIng(ing(x.ing))))) warnings.push('Wybrany zestaw bazowy nie ma mięsa ani ryb – zmień zestaw, jeśli chcesz je na obiadokolację');
   const weekBudget = S.profile.budget > 0 ? S.profile.budget * days.length / 7 : 0, W = varietyW();
   const prevSet = new Set();
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
@@ -289,11 +292,15 @@ function generate(week, opts = {}) {
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
   const pantryExp = S.ingredients.filter(i => (i.pantry || 0) > 0 && i.pantryExp && i.pantryExp <= addDays(week, 6));
-  const meatPref = ({ less: -.15, normal: .22, more: .4 })[S.profile.meatPref || 'normal'], hmc = {}, hasMeat = r => (r.id in hmc ? hmc[r.id] : (hmc[r.id] = r.items.some(x => ing(x.ing) && ing(x.ing).aisle === 'Mięso i ryby')));
+  const meatPref = ({ less: -.15, normal: .22, more: .4 })[S.profile.meatPref || 'normal'], hmc = {}, hasMeat = r => (r.id in hmc ? hmc[r.id] : (hmc[r.id] = r.items.some(x => isMeatIng(ing(x.ing)))));
+  /* a week must not end up without meat or fish: minimum share of dinner days that contain it (soft weight alone lost against pack-fit and cost) */
+  const meatShare = ({ less: .3, normal: .6, more: .8 })[S.profile.meatPref || 'normal'];
+  let fixDin = 0, fixMeat = 0;
+  for (let i = 0; i < 7; i++) { const it = (S.plan[addDays(week, i)] || {}).dinner, d = addDays(week, i); if (!it || !live(it)) continue; if (days.includes(d) && ctx[d].free.includes('dinner')) continue; fixDin++; const r0 = rec(it.rid); if (r0 && hasMeat(r0)) fixMeat++; }
   const blockList = [];
   for (const s of bslots) for (const bl of blocks[s]) blockList.push({ s, days: bl });
   const evalAssign = assign => {
-    const pick = {}, cnt = {}; let sc = 0;
+    const pick = {}, cnt = {}; let sc = 0, mDays = 0, dDays = 0;
     blockList.forEach((bl, k) => {
       const r = assign[k], m = rm(r);
       let f = 0; for (const d of bl.days) { const c2 = ctx[d]; f += c2.kLeft * shareOf(bl.s) / c2.shareSum / m.kcal; }
@@ -304,8 +311,9 @@ function generate(week, opts = {}) {
       sc += bigPen(sv) * bl.days.length;
       sc -= .15 * pf(r) * bl.days.length;   // what you usually pick scores better
       sc -= FW * frozenShare(r) * bl.days.length;   // frozen ready-to-cook products save time
-      if (bl.s === 'dinner') sc -= meatPref * (hasMeat(r) ? 1 : 0) * bl.days.length;   // taste: how often meat/fish for dinner
+      if (bl.s === 'dinner') { dDays += bl.days.length; if (hasMeat(r)) mDays += bl.days.length; sc -= meatPref * (hasMeat(r) ? 1 : 0) * bl.days.length; }   // taste: how often meat/fish for dinner
     });
+    { const tot = dDays + fixDin, want = Math.min(tot, Math.round(tot * meatShare)), have = mDays + fixMeat; if (have < want) sc += (want - have) * 2.5; }   // meat/fish minimum
     for (const k in cnt) { const rid = k.split('|')[1]; sc += (cnt[k] - 1) * W.repeat + (prevUse[rid] || 0) * .15; }
     const need = [Object.assign({}, baseNeed[0]), Object.assign({}, baseNeed[1])], usage = {}; let prevB = null;
     for (const d of days) {
@@ -601,7 +609,7 @@ function suggestBaseSet(tries = 500) {
     const sh = basketOf(need);
     let pen = 0; for (const id of dp) { const i = ing(id); if (i && lifeOf(i) < 5 && 7 / dp.length > lifeOf(i)) pen += .5; }
     let sc = sh.cost * .02 + sh.waste * .75 + sh.distinct * .08 + pen;
-    if (!dp.some(id => ing(id) && ing(id).aisle === 'Mięso i ryby')) sc += ({ less: 0, normal: .6, more: 1.2 })[S.profile.meatPref || 'normal'];   // respect the meat preference
+    { const mp = dp.filter(id => isMeatIng(ing(id))).length, want = Math.min(dp.length, ({ less: 1, normal: 1, more: 2 })[S.profile.meatPref || 'normal']); if (mp < want) sc += (want - mp) * 3; }   // a week's base set must contain meat or fish
     if (!best || sc < best.sc) best = { sc, ids: [...new Set([...dp, ...dc, ...dv, ...x, ...lp, ...lc, ...lv])] };
   }
   return best ? best.ids : [];
