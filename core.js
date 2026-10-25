@@ -39,6 +39,7 @@ function migrate() {
   S.prefs = Object.assign({ learn: true, banIng: [], banKind: [], banRec: [], score: {}, log: [], rate: {}, dropped: [], promoted: [], autoNew: true }, S.prefs || {}); S.ratings = S.ratings || [];
   S.profile = Object.assign({}, d.profile, S.profile || {});
   if (!S.lastBackup) S.lastBackup = today();
+  if ((S.profileVer || 0) < 2) { if (S.profile.frozenPref === 'more') S.profile.frozenPref = 'some'; S.profileVer = 2; }   // the first 'more' default was too strong
   if (S.profileSet === undefined && (S.setupDone || S.rev > 0)) S.profileSet = true;   // existing users are not asked again
   S.recipes.forEach(r => { r.tags = r.tags || []; r.how = r.how || ''; r.prep = r.prep || ''; });
   S.ingredients.forEach(i => { if (i.proc == null) i.proc = 0; if (i.nl == null) i.nl = ''; });
@@ -283,7 +284,7 @@ function generate(week, opts = {}) {
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
   const baseNeed = [{}, {}];
   for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
-  const FW = S.profile.frozenPref === 'normal' ? .08 : 0.7;
+  const FW = ({ normal: .08, some: .1, more: .7 })[S.profile.frozenPref || 'some'];
   const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
@@ -568,7 +569,7 @@ function optionsFor(d, s, n = 3, rot = 0, seen = []) {
     const m = recipeMacros(r); if (m.kcal <= 0) return null;
     const serv = clampServ(tgtK / m.kcal), got = m.kcal * serv, nw = r.items.filter(x => !have.has(x.ing) && !COMBO_STAPLES.has(x.ing)).length, cover = pantryCover(r, serv);
     const pref = prefScore(r);
-    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, frozen: frozenShare(r) >= .5, key: comboKey(r), sc: - pref * .5 - (S.profile.frozenPref === 'normal' ? .1 : 1.2) * frozenShare(r) + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
+    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, frozen: frozenShare(r) >= .5, key: comboKey(r), sc: - pref * .5 - ({ normal: .1, some: .15, more: 1.2 })[S.profile.frozenPref || 'some'] * frozenShare(r) + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
   }).filter(Boolean);
   let fresh = scored.filter(o => !seenSet.has(o.rid));
   if (fresh.length < n) fresh = scored;                                   // everything seen: start again
@@ -816,4 +817,12 @@ function addFrozenVariants(onlyId) {
     v.id = uid(); S.recipes.push(v); n++;
   }
   return n;
+}
+
+/* turn ANY dish (also an assembled one) into its frozen-products version and keep it as a recipe; returns the recipe id */
+function makeFrozenVariant(rid) {
+  const r = rec(rid); if (!r) return null;
+  const v = frozenVariant(r); if (!v) return null;
+  const have = S.recipes.find(x => x.name === v.name); if (have) return have.id;
+  v.id = uid(); S.recipes.push(v); return v.id;
 }

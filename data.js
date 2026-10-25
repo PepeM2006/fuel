@@ -4,7 +4,7 @@
    proc: 0 = unprocessed, 1 = lightly processed (bread, canned, cheese), 2 = highly processed / added sugar / supplement. */
 const AISLES = ['Warzywa i owoce', 'Pieczywo', 'Mięso i ryby', 'Nabiał i jajka', 'Produkty suche', 'Mrożonki', 'Napoje', 'Suplementy', 'Gotowe', 'Inne'];
 
-const SEED_VERSION = 8;
+const SEED_VERSION = 9;
 
 function seedData() {
   const A = AISLES;
@@ -141,7 +141,7 @@ function seedData() {
     profile: {
       weight: 75, height: 180, age: 22, sex: 'm', bodyFat: 15, activity: 1.5, surplus: 7,
       proteinPerKg: 1.8, fatPct: 25, trainDelta: 250, trainDays: [0, 2, 4],
-      budget: 90, packFit: 'strong', mealStyle: 'mix', frozenPref: 'more', breakfastQuick: true, noSpill: true, meatPref: 'normal', shopTrips: 1, trip2Day: 3, store: 'Lidl', snack: false, clean: true, prepDays: 3, cheatCap: 12, aiOn: true,
+      budget: 90, packFit: 'strong', mealStyle: 'mix', frozenPref: 'some', breakfastQuick: true, noSpill: true, meatPref: 'normal', shopTrips: 1, trip2Day: 3, store: 'Lidl', snack: false, clean: true, prepDays: 3, cheatCap: 12, aiOn: true,
     },
     ingredients, recipes, plan: {}, menus: {}, log: {}, workouts: {}, adjust: {}, shopChecked: {}, chat: [],
   };

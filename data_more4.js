@@ -20,6 +20,8 @@ function seedExtras4(A) {
     ['kipstrips_fr', 'Kurczak w paskach (mrożony, naturalny)', 'Kipstrips naturel (diepvries)', 'g', 125, 22, 2, 3, F, 600, 7.0, 1],
     ['zalm_fr', 'Łosoś (filet, mrożony)', 'Zalmfilet (diepvries)', 'g', 200, 20, 0, 13, F, 400, 7.5, 0],
     ['avocado_fr', 'Awokado w kawałkach (mrożone)', 'Avocado stukjes (diepvries)', 'g', 160, 2, 9, 15, F, 500, 5.0, 0],
+    ['frites_fr', 'Frytki do piekarnika (mrożone, same ziemniaki)', 'Oven frites naturel (diepvries)', 'g', 150, 2.4, 24, 4.5, F, 750, 2.0, 1],
+    ['zoetefrites_fr', 'Frytki z batatów do piekarnika (mrożone)', 'Zoete aardappel frites (diepvries)', 'g', 130, 1.8, 22, 4, F, 600, 2.5, 1],
   ];
   // name, slots, tags, how, prep, items
   const recipes = [
@@ -39,6 +41,12 @@ function seedExtras4(A) {
     ['Curry z dyni z mrożonki i ciecierzycy', ['dinner'], ['z mrożonek', 'meal prep', 'wegetariańskie'], H('Mrożoną dynię piecz 25 minut w 200°C albo gotuj w mleku kokosowym 15 minut.', 'Dodaj ciecierzycę i curry.', 'Ryż ugotuj osobno.'), 'Ugotuj duży garnek curry', [['butternut_fr', 300], ['kikker', 150], ['kokosmelk', 100], ['rijst', 50]]],
     ['Tofu z mrożonymi warzywami i ryżem', ['dinner'], ['z mrożonek', 'szybkie', 'wegetariańskie'], H('Tofu osusz, pokrój i zrumień 8 minut.', 'Dodaj mrożone warzywa, smaż 7 minut.', 'Sos z masła orzechowego rozrzedzonego wodą. Ryż ugotuj osobno.'), 'Ugotuj ryż na 2 dni', [['tofu', 180], ['groentemix', 250], ['rijst', 75], ['pinda', 15]]],
     ['Kurczak z marchewką i groszkiem z mrożonek (jeden garnek)', ['dinner'], ['z mrożonek', 'meal prep', 'szybkie'], H('Wszystko do jednego garnka: ryż, mrożona marchew, groszek i kurczak w kawałkach.', 'Zalej wodą (ok. 2,5 razy więcej niż ryżu), dopraw i gotuj pod przykryciem 25 minut.'), 'Ugotuj garnek na 2–3 dni', [['kip_fr', 160], ['wortel_fr', 150], ['erwten', 100], ['rijst', 85], ['olijf', 8]]],
+    // ---------- fries from the freezer (oven, no peeling or deep frying)
+    ['Kurczak z frytkami z piekarnika i surówką', ['dinner'], ['z mrożonek', 'szybkie'], H('Piekarnik 220°C. Mrożone frytki rozłóż na blasze i piecz 20–25 minut, w połowie przewróć.', 'Kurczaka w kawałkach dopraw i smaż 8–10 minut.', 'Surówka: starta marchew i kapusta z jogurtem greckim.'), '', [['kip', 160], ['frites_fr', 250], ['rodekool', 100], ['wortel', 80], ['griek', 40]]],
+    ['Burgery z wołowiny z frytkami z piekarnika', ['dinner'], ['z mrożonek', 'szybkie', 'wysokobiałkowe'], H('Piekarnik 220°C, frytki piecz 20–25 minut.', 'Mięso uformuj w 2 burgery, dopraw i smaż po 4–5 minut z każdej strony.', 'Podaj z pomidorem, ogórkiem i chlebem.'), '', [['gehakt', 140], ['frites_fr', 200], ['tomaat', 100], ['komkommer', 60], ['brood', 60]]],
+    ['Łosoś z frytkami z piekarnika i groszkiem', ['dinner'], ['z mrożonek', 'szybkie', 'omega-3'], H('Frytki piecz w 220°C 20–25 minut.', 'Łososia dołóż na blachę na ostatnie 12–15 minut.', 'Mrożony groszek zalej wrzątkiem lub gotuj 3 minuty.'), '', [['zalm', 140], ['frites_fr', 200], ['erwten', 100]]],
+    ['Jajka sadzone z frytkami z piekarnika i sałatką', ['dinner'], ['z mrożonek', 'szybkie', 'wegetariańskie'], H('Frytki piecz w 220°C 20–25 minut.', 'Jajka usmaż 3–4 minuty.', 'Sałatka: pomidor, rukola, oliwa.'), '', [['eieren', 3], ['frites_fr', 220], ['tomaat', 120], ['rucola', 30], ['olijf', 8]]],
+    ['Kurczak z frytkami z batatów i jogurtem', ['dinner'], ['z mrożonek', 'szybkie'], H('Frytki z batatów piecz w 220°C 20–25 minut.', 'Kurczaka usmaż 8–10 minut.', 'Podaj z jogurtem greckim jako sosem i rukolą.'), '', [['kip', 160], ['zoetefrites_fr', 250], ['griek', 60], ['rucola', 30]]],
     // ---------- uni lunch (no cooking in the morning)
     ['Kanapka z mrożonym awokado i jajkiem', ['lunch'], ['z mrożonek', 'na uczelnię', 'szybkie'], H('Awokado z mrożonki rozmraża się w kilka minut – rozgnieć na chlebie.', 'Dodaj jajko na twardo (ugotowane wcześniej) i pomidora.'), 'Ugotuj jajka na twardo na kilka dni', [['brood', 120], ['avocado_fr', 80], ['eieren', 2], ['tomaat', 80]]],
     ['Wrap z mrożonym awokado i tuńczykiem', ['lunch'], ['z mrożonek', 'na uczelnię', 'bez gotowania', 'szybkie'], H('Awokado rozgnieć widelcem (po kilku minutach rozmrożenia).', 'Wrap posmaruj, dodaj tuńczyka i rukolę, zawiń w folię.'), '', [['wrap', 110], ['avocado_fr', 80], ['tonijn', 110], ['rucola', 30]]],
