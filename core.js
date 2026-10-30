@@ -51,6 +51,8 @@ function migrate() {
     S.seedVersion = SEED_VERSION; setTimeout(() => save(), 0);
   }
   if (typeof comboRec === 'function' && S.plan && fixPlanSlots()) setTimeout(() => save(), 0);
+  S.stockLog = S.stockLog || [];
+  if (typeof tickStock === 'function' && tickStock()) setTimeout(() => save(), 0);
 }
 /* ---- durable local storage: localStorage + an IndexedDB mirror + rolling snapshots (so one cleared store never loses your plan) ---- */
 const idbOpen = () => new Promise((res, rej) => { if (!('indexedDB' in window)) return rej(new Error('no idb')); const q = indexedDB.open('fuel', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
@@ -170,8 +172,51 @@ function plannedLeft(d) {
 function setEaten(d, slot, val) {
   const it = S.plan[d][slot]; if (!!it.eaten === val) return;
   it.eaten = val; const r = rec(it.rid);
-  if (val) { it.used = {}; if (r) for (const x of r.items) { const i = ing(x.ing); if (!i) continue; const dec = Math.min(i.pantry || 0, x.amt * it.serv); i.pantry = (i.pantry || 0) - dec; it.used[i.id] = (it.used[i.id] || 0) + dec; } }
-  else { for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } it.used = {}; }
+  if (val && it.auto) it.auto = false;   // stock for this meal was already taken automatically
+  else if (val) { it.used = {}; if (r) for (const x of r.items) { const i = ing(x.ing); if (!i) continue; const dec = Math.min(i.pantry || 0, x.amt * it.serv); i.pantry = (i.pantry || 0) - dec; it.used[i.id] = (it.used[i.id] || 0) + dec; } }
+  else { for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } it.used = {}; it.noAuto = true; }
+}
+
+/* ============ automatic stock: the app knows what is left without typing ============
+   - buying (ticking the shopping list) adds the whole packs to the stock, with a best-before date from the product's shelf life
+   - a planned meal takes its ingredients out of the stock once its time has passed (unless you skipped it)
+   - things past their date are thrown out; every change is in S.stockLog so you can see and correct it */
+const SLOT_DONE_H = { breakfast: 10, lunch: 15, dinner: 21 };
+function stockLogAdd(e) { S.stockLog = S.stockLog || []; S.stockLog.push(Object.assign({ t: Date.now() }, e)); if (S.stockLog.length > 250) S.stockLog.splice(0, S.stockLog.length - 250); }
+function addBought(i, qty, how = 'kupione') {
+  if (!i || !(qty > 0)) return;
+  const before = i.pantry || 0, life = lifeOf(i);
+  i.pantry = before + qty;
+  if (life < 999 && (!i.pantryExp || before <= .01)) i.pantryExp = addDays(today(), Math.max(2, Math.round(life * 1.5)));
+  stockLogAdd({ id: i.id, q: qty, why: how });
+}
+function mealDue(d, s) { const t = today(); return d < t || (d === t && new Date().getHours() >= SLOT_DONE_H[s]); }
+function tickStock() {
+  if (!S || !S.plan) return false;
+  const t = today(); let changed = false;
+  if (!S.stockSince) { S.stockSince = t; changed = true; }
+  for (const [d, dp] of Object.entries(S.plan)) {
+    if (d < S.stockSince || d > t) continue;
+    for (const s of SLOTS_ALL) {
+      const it = dp[s]; if (!it) continue;
+      if (it.auto && it.skipped) {   // you skipped it afterwards: give the food back
+        for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; }
+        it.used = {}; it.auto = false; it.noAuto = true; changed = true; continue;
+      }
+      if (it.eaten || it.auto || it.skipped || it.noAuto || !mealDue(d, s)) continue;
+      const r = rec(it.rid); if (!r) continue;
+      it.used = {}; it.auto = true; changed = true;
+      for (const x of r.items) {
+        const i = ing(x.ing); if (!i || !(i.pantry > 0)) continue;
+        const dec = Math.min(i.pantry, x.amt * it.serv); i.pantry -= dec; it.used[i.id] = (it.used[i.id] || 0) + dec;
+        if (dec > .01) stockLogAdd({ id: i.id, q: -dec, why: 'zużyte', meal: r.name });
+      }
+    }
+  }
+  for (const i of S.ingredients) {   // spoiled: one day of grace after the date
+    if ((i.pantry || 0) > .01 && i.pantryExp && i.pantryExp < addDays(t, -1)) { stockLogAdd({ id: i.id, q: -i.pantry, why: 'przeterminowane' }); i.pantry = 0; delete i.pantryExp; changed = true; }
+  }
+  return changed;
 }
 
 /* ============ planner ============ */
@@ -241,11 +286,15 @@ function optionPool(slot, week, ignoreSet = false) {
   const have = new Set(pool.map(r => r.name));
   return pool.concat(combos.filter(x => !have.has(x.name))).filter(r => !isBanned(r));   // things you never want are never offered
 }
+/* a dish you clearly dislike is not even a candidate (when enough others are left) */
+const TASTE_W = .4, TASTE_CUT = -3, satPref = x => x / (1 + Math.abs(x) / 4);   // saturating: liking something a lot should not make every dinner the same
 function candidates(slot, week) {
   let c = optionPool(slot, week);
   if (!c.length && baseSetOf(week)) c = optionPool(slot, week, true);          // the chosen base set cannot make this meal: do not leave it empty
   const menu = S.menus[week] || [], m = c.filter(r => menu.includes(r.id));
-  return m.length ? m : c;
+  c = m.length ? m : c;
+  const ok = c.filter(r => prefScore(r) > TASTE_CUT);
+  return ok.length >= 6 ? ok : c;
 }
 function splitRun(run, N) {
   const n = Math.max(1, Math.ceil(run.length / Math.max(1, N))), base = Math.floor(run.length / n), extra = run.length % n, out = [];
@@ -264,7 +313,7 @@ function generate(week, opts = {}) {
   for (const d of days) {
     const dp = S.plan[d] || (S.plan[d] = {}), tgt = targets(d), lg = ZERO();
     for (const e of S.log[d] || []) addM(lg, e);
-    const fixed = slots.filter(s => dp[s] && (dp[s].eaten || dp[s].locked || dp[s].skipped || opts.keep));
+    const fixed = slots.filter(s => dp[s] && (dp[s].eaten || dp[s].auto || dp[s].locked || dp[s].skipped || opts.keep));
     const free = slots.filter(s => !fixed.includes(s));
     for (const s of free) delete dp[s];
     const fx = ZERO(); for (const s of fixed) if (live(dp[s])) addM(fx, itemMacros(dp[s]));
@@ -286,7 +335,7 @@ function generate(week, opts = {}) {
   const prevSet = new Set();
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
   const baseNeed = [{}, {}];
-  for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
+  for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten || it.auto) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
   const FW = ({ normal: .08, some: .1, more: .7 })[S.profile.frozenPref || 'some'];
   const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
@@ -309,7 +358,7 @@ function generate(week, opts = {}) {
       const key = bl.s + '|' + r.id; cnt[key] = (cnt[key] || 0) + 1;
       if (prevSet.has(r.id)) sc -= W.keep;
       sc += bigPen(sv) * bl.days.length;
-      sc -= .15 * pf(r) * bl.days.length;   // what you usually pick scores better
+      sc -= TASTE_W * satPref(pf(r)) * bl.days.length;   // taste is the strongest soft preference: what you like wins over pack-fit savings
       sc -= FW * frozenShare(r) * bl.days.length;   // frozen ready-to-cook products save time
       if (bl.s === 'dinner') { dDays += bl.days.length; if (hasMeat(r)) mDays += bl.days.length; sc -= meatPref * (hasMeat(r) ? 1 : 0) * bl.days.length; }   // taste: how often meat/fish for dinner
     });
@@ -464,7 +513,7 @@ function shopList(week, trip = null) {
     const d = addDays(week, i); if (d < start) continue;
     const tr = nT === 2 ? tripOf(i) : 0, dp = S.plan[d] || {};
     for (const s of SL()) {
-      const it = dp[s]; if (!it || it.eaten || it.skipped) continue; const r = rec(it.rid); if (!r) continue;
+      const it = dp[s]; if (!it || it.eaten || it.auto || it.skipped) continue; const r = rec(it.rid); if (!r) continue;
       for (const x of r.items) { need[tr][x.ing] = (need[tr][x.ing] || 0) + x.amt * it.serv; (uses[x.ing + '|' + tr] = uses[x.ing + '|' + tr] || []).push(i); }
     }
   }
@@ -577,7 +626,7 @@ function optionsFor(d, s, n = 3, rot = 0, seen = []) {
     const m = recipeMacros(r); if (m.kcal <= 0) return null;
     const serv = clampServ(tgtK / m.kcal), got = m.kcal * serv, nw = r.items.filter(x => !have.has(x.ing) && !COMBO_STAPLES.has(x.ing)).length, cover = pantryCover(r, serv);
     const pref = prefScore(r);
-    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, frozen: frozenShare(r) >= .5, key: comboKey(r), sc: - pref * .5 - ({ normal: .1, some: .15, more: 1.2 })[S.profile.frozenPref || 'some'] * frozenShare(r) + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
+    return { rid: r.id, serv, kcal: got, p: m.p * serv, nw, cover, pref, frozen: frozenShare(r) >= .5, key: comboKey(r), sc: - pref * .9 - ({ normal: .1, some: .15, more: 1.2 })[S.profile.frozenPref || 'some'] * frozenShare(r) + Math.abs(got - tgtK) / tgtK * 3 + (use[r.id] || 0) * .3 + (recent[r.id] ? .6 : 0) + rnd() * .5 + bigPen(serv) + nw * Math.max(.05, W.distinct * 2.5) - cover * 1.4 };
   }).filter(Boolean);
   let fresh = scored.filter(o => !seenSet.has(o.rid));
   if (fresh.length < n) fresh = scored;                                   // everything seen: start again
