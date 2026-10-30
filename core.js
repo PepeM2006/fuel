@@ -883,3 +883,57 @@ function makeFrozenVariant(rid) {
   const have = S.recipes.find(x => x.name === v.name); if (have) return have.id;
   v.id = uid(); S.recipes.push(v); return v.id;
 }
+
+
+/* ============ no cooking today / weekly review / stock check / thawing ============ */
+const daysBetween = (a, b) => Math.round((parseD(b) - parseD(a)) / 864e5);
+/* today's dinner becomes the fastest thing: from the freezer, ready-made or assembled, preferably with what is already at home */
+function lazyDay(d) {
+  const dp = S.plan[d] || (S.plan[d] = {}), cur = dp.dinner;
+  if (cur && cur.eaten) return null;
+  const tgtK = cur && live(cur) ? itemMacros(cur).kcal : targets(d).kcal * shareOf('dinner');
+  const quick = r => !r.prep && (frozenShare(r) >= .34 || (r.tags || []).some(t => t === 'szybkie' || t === 'kupne' || t === 'z mrożonek'));
+  const pool = optionPool('dinner', weekStart(d)).filter(r => quick(r) && (!cur || r.id !== cur.rid));
+  if (!pool.length) return null;
+  const best = pool.map(r => { const m = recipeMacros(r), serv = clampServ(tgtK / m.kcal);
+    return { r, serv, sc: Math.abs(m.kcal * serv - tgtK) / tgtK * 2 - prefScore(r) * .15 - pantryCover(r, serv) * 1.2 - frozenShare(r) * .5 + Math.random() * .6 }; }).sort((a, b) => a.sc - b.sc)[0];
+  swapMeal(d, 'dinner', best.r.id, best.serv);
+  return best.r.name;
+}
+/* what the week looked like: eaten vs target, taste, money, waste */
+function weekReview(week) {
+  const t = today(), days = Array.from({ length: 7 }, (_, i) => addDays(week, i)).filter(d => d <= t);
+  let n = 0, kc = 0, pr = 0, tk = 0, tp = 0, cost = 0, meat = 0, din = 0, train = 0;
+  for (const d of days) {
+    const c = consumed(d), tg = targets(d), dp = S.plan[d] || {};
+    if (isTrain(d)) train++;
+    if (c.kcal > 0 && (d < t || c.kcal > tg.kcal * .5)) { n++; kc += c.kcal; pr += c.p; tk += tg.kcal; tp += tg.p; }
+    for (const s of SL()) { const it = dp[s]; if (live(it)) { cost += itemCost(it); if (s === 'dinner') { din++; if (rec(it.rid).items.some(x => isMeatIng(ing(x.ing)))) meat++; } } }
+  }
+  if (!n) return null;
+  const end = addDays(week, 6), rs = (S.ratings || []).filter(x => x.d >= week && x.d <= end && rec(x.rid));
+  const byR = {}; rs.forEach(x => { (byR[x.rid] = byR[x.rid] || []).push(x.r); });
+  const rated = Object.entries(byR).map(([rid, a]) => ({ name: rec(rid).name, avg: a.reduce((p, q) => p + q, 0) / a.length })).sort((a, b) => b.avg - a.avg);
+  const wasted = (S.stockLog || []).filter(e => e.why === 'przeterminowane' && new Date(e.t) >= parseD(week) && new Date(e.t) <= parseD(addDays(end, 1))).reduce((a, e) => { const i = ing(e.id); return a + (i ? -e.q * unitCost(i) : 0); }, 0);
+  const R = { days: n, kcal: kc / n, kcalT: tk / n, p: pr / n, pT: tp / n, cost, meat, din, train, rated, wasted, tips: [] };
+  const dk = R.kcal / R.kcalT;
+  if (dk < .92) R.tips.push(`Jadłeś średnio ${r0(R.kcalT - R.kcal)} kcal poniżej celu – przy masie dodaj porcję albo shake.`);
+  else if (dk > 1.08) R.tips.push(`Średnio ${r0(R.kcal - R.kcalT)} kcal ponad cel.`);
+  else R.tips.push('Kalorie trzymasz blisko celu.');
+  if (R.p < R.pT * .9) R.tips.push(`Białka średnio ${r0(R.p)} g przy celu ${r0(R.pT)} g – dołóż jogurt, kwark albo jajka.`);
+  if (wasted > .5) R.tips.push(`Wyrzuciłeś ok. ${money(wasted)} przeterminowanego jedzenia – planer w kolejnych tygodniach zużyje to wcześniej.`);
+  if (S.profile.budget && cost > S.profile.budget * 1.05) R.tips.push(`Plan wyszedł ${money(cost - S.profile.budget)} ponad budżet.`);
+  return R;
+}
+/* a weekly 2-minute check of the few most valuable things at home, so the automatic count never drifts far */
+function stockCheckDue() {
+  const t = today(), last = S.stockCheckedAt || S.stockSince; if (!last || pantryItems().length < 3) return false;
+  const gap = daysBetween(last, t); return gap >= 10 || (gap >= 7 && wdIdx(t) >= 4);
+}
+const stockCheckItems = () => pantryItems().map(i => ({ i, v: (i.pantry || 0) * unitCost(i) + (daysLeft(i) != null && daysLeft(i) <= 2 ? 5 : 0) })).sort((a, b) => b.v - a.v).slice(0, 6).map(x => x.i);
+/* frozen meat or fish that tomorrow needs: take it out the evening before */
+function thawList(d) {
+  const out = new Set(), dd = addDays(d, 1), dp = S.plan[dd] || {};
+  for (const s of SL()) { const it = dp[s], r = live(it); if (!r || it.eaten) continue; for (const x of rec(it.rid).items) { const i = ing(x.ing); if (i && i.aisle === 'Mrożonki' && isMeatIng(i) && !/gotow|panier|paluszk/i.test(i.name)) out.add(i.name.replace(/ \(.*\)/, '').toLowerCase()); } }
+  return [...out];
+}

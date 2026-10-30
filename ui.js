@@ -36,6 +36,7 @@ function viewToday() {
     const nxt = addDays(weekStart(today()), 7), hasNext = Array.from({ length: 7 }, (_, k) => (S.plan[addDays(nxt, k)] || {})).some(dp => SL().some(s => dp[s]));
     h += `<div class="banner sm"><b>${hasNext ? 'Przyszły tydzień jest zaplanowany.' : 'Czas zaplanować przyszły tydzień.'}</b> ${hasNext ? 'Sprawdź listę zakupów i idź na zakupy.' : 'Ułóż menu i listę zakupów z wyprzedzeniem – zakupy zrobisz już dziś.'}<div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="planNext">${hasNext ? 'Zobacz plan' : 'Zaplanuj przyszły tydzień'}</button><button class="sm" data-act="shopNext">Lista zakupów</button></div></div>`;
   }
+  if (isToday) h += stockCheckBanner();
   const fmt = n => r0(n).toLocaleString('pl-PL'), over = remain < -150;
   let L = '', Rt = '';
   L += `<div class="card main"><div class="row sp" style="align-items:flex-end;gap:12px"><div><div class="num ${over ? 'over' : ''}">${fmt(Math.abs(remain))}</div><div class="lab">${remain >= 0 ? 'kcal do celu na dziś' : 'kcal ponad cel'}</div></div><button class="${train ? 'on' : ''}" data-act="toggleTrain">${train ? 'Dzień treningowy' : 'Dzień wolny'}</button></div>
@@ -57,7 +58,8 @@ function viewToday() {
   // prep
   const prep = [];
   for (const dd of [d, addDays(d, 1)]) for (const s of SL()) { const it = (S.plan[dd] || {})[s], r = live(it) && rec(it.rid); if (r && r.prep && !it.eaten && !prep.find(p => p.r === r.id)) prep.push({ r: r.id, txt: r.prep, name: r.name, day: dd === d ? 'dziś' : 'jutro' }); }
-  if (prep.length) Rt += `<div class="card"><h2>Przygotowanie</h2>${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
+  const thaw = isToday ? thawList(d) : [];
+  if (prep.length || thaw.length) Rt += `<div class="card"><h2>Przygotowanie</h2>${thaw.length ? `<div class="sm" style="margin:4px 0"><b>Wyjmij z zamrażarki na jutro:</b> ${esc(thaw.join(', '))}</div>` : ''}${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
   // meals
   L += `<div class="card mealscard"><h2>Posiłki</h2>`;
   if (!SL().some(s => dp[s])) L += `<div class="banner sm" style="margin:0 0 8px"><b>Nie masz jeszcze planu na ten tydzień.</b> Wybierz dania albo pozwól aplikacji ułożyć tydzień – lista zakupów powstanie sama.<div class="row wrap" style="margin-top:10px"><button class="pri sm" data-act="genWeekHere">Wygeneruj tydzień</button><button class="sm" data-act="menuHere">Wybierz dania</button></div></div>`;
@@ -70,7 +72,7 @@ function viewToday() {
     } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
   for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
-  L += `<div class="row wrap" style="margin-top:12px"><button class="pri" data-act="addFood">+ Dodaj jedzenie</button><button data-act="cheat">Cheat meal</button><button data-act="refit">Dopasuj porcje</button></div></div>`;
+  L += `<div class="row wrap" style="margin-top:12px"><button class="pri" data-act="addFood">+ Dodaj jedzenie</button><button data-act="cheat">Cheat meal</button>${d >= today() && !(dp.dinner && dp.dinner.eaten) ? '<button data-act="lazyDay">Dziś bez gotowania</button>' : ''}<button data-act="refit">Dopasuj porcje</button></div></div>`;
   return h + `<div class="today2"><div class="tl">${L}</div><div class="tr">${Rt}</div></div>`;
 }
 
@@ -83,17 +85,41 @@ function weekSwitch() {   // always visible: this week / next week
   const lab = s => { const a = parseD(s), b = parseD(addDays(s, 6)); return `${a.getDate()}.${pad(a.getMonth() + 1)}–${b.getDate()}.${pad(b.getMonth() + 1)}`; };
   return `<div class="seg" style="margin:0 0 12px"><button class="${w === cur ? 'sel' : ''}" data-act="weekSet" data-w="${cur}">Ten tydzień · ${lab(cur)}</button><button class="${w === nxt ? 'sel' : ''}" data-act="weekSet" data-w="${nxt}">Następny · ${lab(nxt)}</button></div>`;
 }
+function stockCheckBanner() {
+  if (!stockCheckDue()) return '';
+  return `<div class="banner sm"><b>Szybka kontrola domu.</b> Sprawdź ${stockCheckItems().length} najważniejszych pozycji (minuta), żeby automatyczny stan się zgadzał.<div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="stockCheck">Sprawdź</button><button class="sm" data-act="stockCheckLater">Później</button></div></div>`;
+}
+function stockCheckDialog() {
+  const items = stockCheckItems(); if (!items.length) return toast('Nie masz nic zapisanego w domu');
+  modal('Kontrola domu', `<p class="sm" style="margin-top:0">Tyle według mnie zostało. Popraw tylko to, co się nie zgadza.</p>${items.map(i => `<div class="row sp" style="padding:6px 0;border-top:1px solid var(--line);gap:10px"><span class="grow sm">${esc(i.name)}</span><input data-sc="${i.id}" inputmode="decimal" style="width:90px" value="${r0(i.pantry)}"><span class="mut xs" style="width:26px">${i.unit}</span></div>`).join('')}`,
+    [{ label: 'Wszystko się zgadza', fn: () => { S.stockCheckedAt = today(); save(); closeModal(); render(); toast('Dzięki, stan potwierdzony'); } },
+    { label: 'Zapisz poprawki', cls: 'pri', fn: () => { let n = 0; $$('[data-sc]').forEach(x => { const i = ing(x.dataset.sc), v = Math.max(0, num(x.value)); if (i && Math.abs(v - (i.pantry || 0)) > .5) { stockLogAdd({ id: i.id, q: v - (i.pantry || 0), why: 'korekta' }); i.pantry = v; n++; } }); S.stockCheckedAt = today(); save(); closeModal(); render(); toast(n ? `Poprawiono ${n} pozycji` : 'Dzięki, stan potwierdzony'); } }]);
+}
+function weekReviewCard(wk) {
+  const R = weekReview(wk); if (!R) return '';
+  const f1 = x => (Math.round(x * 10) / 10).toString().replace('.', ',');
+  return `<div class="card"><h2>Jak minął tydzień</h2>
+    <div class="row wrap" style="gap:6px;margin-bottom:8px"><span class="pill">${r0(R.kcal)} / ${r0(R.kcalT)} kcal</span><span class="pill">białko ${r0(R.p)} / ${r0(R.pT)} g</span><span class="pill soft">${R.train} ${R.train === 1 ? 'trening' : 'treningi'}</span>${R.din ? `<span class="pill soft">mięso lub ryba: ${R.meat}/${R.din} obiadokolacji</span>` : ''}${R.wasted > .5 ? `<span class="pill soft">wyrzucone ${money(R.wasted)}</span>` : ''}</div>
+    ${R.tips.map(t => `<div class="sm" style="margin:3px 0">${esc(t)}</div>`).join('')}
+    ${R.rated.length ? `<div class="sm" style="margin-top:8px"><b>Najlepiej:</b> ${esc(R.rated[0].name)} (${f1(R.rated[0].avg)})${R.rated.length > 1 && R.rated[R.rated.length - 1].avg <= 2.5 ? ` · <b>Najsłabiej:</b> ${esc(R.rated[R.rated.length - 1].name)} (${f1(R.rated[R.rated.length - 1].avg)})` : ''}</div>` : '<div class="sm mut" style="margin-top:6px">Oceniaj posiłki po zjedzeniu, a tu zobaczysz, co smakowało najlepiej.</div>'}</div>`;
+}
+function planPrefsLine() {
+  const p = S.profile, meat = { less: 'rzadziej', normal: 'normalnie', more: 'często' }[p.meatPref || 'normal'], fz = { normal: 'rzadko', some: 'czasem', more: 'często' }[p.frozenPref || 'some'];
+  return `Gotuję raz na ${p.prepDays === 1 ? 'dzień' : p.prepDays + ' dni'} · mięso: ${meat} · mrożonki: ${fz} · zakupy ${(p.shopTrips | 0) >= 2 ? '2×' : '1×'} w tygodniu`;
+}
 function quizOffer() { return S.prefs.quizDone || (S.prefs.quizSeen || []).length ? '' : `<div class="card" style="margin-bottom:10px"><b>Dopasuj plany do siebie</b><div class="sm mut" style="margin:4px 0 8px">Minuta quizu: oceń kilkadziesiąt dań, a planer będzie wybierał to, co Ci smakuje.</div><button class="sm pri" data-act="tasteQuiz">Zacznij quiz</button></div>`; }
 function viewPlan() {
   const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0, frozen: 0 }, menu = S.menus[wk] || [];
   let h = `<div class="top"><div><div class="eyebrow">${esc(fmtDay(wk))} – ${esc(fmtDay(addDays(wk, 6)))}</div><h1>Plan tygodnia</h1></div><div class="row"><button class="icon" aria-label="Poprzedni tydzień" data-act="week" data-n="-1">‹</button><button class="icon" aria-label="Następny tydzień" data-act="week" data-n="1">›</button></div></div>`;
   h += weekSwitch();
-  h += saveBar();
-  h += quizOffer();
-  h += `<div class="card"><div class="row wrap"><button class="pri" data-act="menuPicker">Wybierz dania na tydzień</button><button data-act="basePicker">Półprodukty na tydzień</button><button data-act="gen">Wygeneruj tydzień</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost danger" data-act="clearWeek">Wyczyść</button></div>
-    <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Nie wybrałeś menu – generator użyje wszystkich przepisów. Wybierz dania, a lista zakupów powstanie z nich.'}</div>
-    ${(S.bases[wk] || []).length ? `<div class="mut sm" style="margin-top:8px"><b>Zestaw półproduktów (${S.bases[wk].length}):</b> ${S.bases[wk].map(k => ing(k)).filter(Boolean).map(i => `<span class="tag">${esc(i.name.toLowerCase())}</span>`).join(' ')} <button class="ghost sm" data-act="basePicker">zmień</button></div>` : `<div class="mut xs" style="margin-top:6px">Półprodukty: wybierz kilka produktów, a z nich ułożę wiele różnych dań – kupujesz mało rzeczy.</div>`}
-    <div class="grid2" style="margin-top:10px">
+  h += quizOffer() + stockCheckBanner();
+  const hasPlan = Array.from({ length: 7 }, (_, k) => S.plan[addDays(wk, k)] || {}).some(dp => SL().some(s => dp[s]));
+  h += `<div class="card"><div class="row wrap"><button class="pri" data-act="gen">${hasPlan ? 'Ułóż tydzień od nowa' : 'Ułóż tydzień'}</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost" data-act="togglePlanSet" aria-expanded="${UI.planSet ? 'true' : 'false'}">${UI.planSet ? 'Mniej ▴' : 'Ustawienia ▾'}</button></div>
+    <div class="mut xs" style="margin-top:8px">${esc(planPrefsLine())}${menu.length ? ' · własne menu' : ''}${(S.bases[wk] || []).length ? ' · zestaw półproduktów' : ''}</div>`;
+  if (UI.planSet) h += `<div class="row wrap" style="margin-top:12px"><button class="sm" data-act="menuPicker">Wybierz dania na tydzień</button><button class="sm" data-act="basePicker">Półprodukty na tydzień</button><button class="sm danger" data-act="clearWeek">Wyczyść tydzień</button></div>
+    <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Bez wybranego menu generator użyje wszystkich przepisów.'}</div>
+    ${(S.bases[wk] || []).length ? `<div class="mut sm" style="margin-top:8px"><b>Zestaw półproduktów (${S.bases[wk].length}):</b> ${S.bases[wk].map(k => ing(k)).filter(Boolean).map(i => `<span class="tag">${esc(i.name.toLowerCase())}</span>`).join(' ')}</div>` : ''}
+    <div class="grid2" style="margin-top:12px">
       <div><label>Gotuję raz na</label><select data-bind="profile.prepDays">${[1, 2, 3, 4].map(n => `<option value="${n}" ${S.profile.prepDays === n ? 'selected' : ''}>${n === 1 ? 'codziennie' : n + ' dni'}</option>`).join('')}</select></div>
       <div><label>Przekąska</label><select data-bind="profile.snack"><option value="false" ${!S.profile.snack ? 'selected' : ''}>nie – śniadanie, uczelnia, obiadokolacja</option><option value="true" ${S.profile.snack ? 'selected' : ''}>tak – dodatkowa przekąska</option></select></div>
       <div><label>Tryb czysty</label><select data-bind="profile.clean"><option value="true" ${S.profile.clean ? 'selected' : ''}>bez przetworzonych</option><option value="false" ${!S.profile.clean ? 'selected' : ''}>dowolne</option></select></div>
@@ -105,14 +131,16 @@ function viewPlan() {
       <div><label>Mięso i ryby na obiadokolację</label><select data-bind="profile.meatPref">${[['less', 'rzadziej'], ['normal', 'normalnie'], ['more', 'często']].map(([v, l]) => `<option value="${v}" ${(S.profile.meatPref || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Zakupy w tygodniu</label><select data-bind="profile.shopTrips"><option value="1" ${(S.profile.shopTrips | 0) < 2 ? 'selected' : ''}>raz (świeże mięso tylko na pierwsze dni)</option><option value="2" ${(S.profile.shopTrips | 0) >= 2 ? 'selected' : ''}>dwa razy (świeże przez cały tydzień)</option></select></div>
       ${(S.profile.shopTrips | 0) >= 2 ? `<div><label>Drugie zakupy</label><select data-bind="profile.trip2Day">${[2, 3, 4].map(n => `<option value="${n}" ${(S.profile.trip2Day ?? 3) === n ? 'selected' : ''}>${DAYFULL[n]}</option>`).join('')}</select></div>` : ''}</div></div>`;
+  h += '@@STATS@@';
   const priced = [];
   h += `<div class="daygrid">`;
+  const gone = [];
   for (let i = 0; i < 7; i++) {
     const d = addDays(wk, i), dp = S.plan[d] || {}, t = targets(d), dm = ZERO(); let dc = 0, any = false;
     for (const s of SL()) { const it = dp[s]; if (live(it)) { any = true; addM(dm, itemMacros(it)); dc += itemCost(it); tot.meals++; if (isClean(rec(it.rid))) tot.clean++; if (frozenShare(rec(it.rid)) >= .5) tot.frozen++; priced.push({ d, s, it, cost: itemCost(it) }); } }
     for (const e of S.log[d] || []) addM(dm, e);
     if (any) { tot.kcal += dm.kcal; tot.cost += dc; tot.days++; }
-    if (d < today() && !any) { h += `<div class="card day" style="opacity:.55;padding:10px 16px"><b>${DAYFULL[i]}</b> <span class="mut sm">${parseD(d).getDate()}.${pad(parseD(d).getMonth() + 1)} · minął</span></div>`; continue; }
+    if (d < today() && !any) { gone.push(DAYN[i]); continue; }
     h += `<div class="card day ${d === today() ? 'istoday' : ''}"><div class="dayhead"><div><b>${DAYFULL[i]}</b> <span class="mut sm">${parseD(d).getDate()}.${pad(parseD(d).getMonth() + 1)}</span> ${isTrain(d) ? '<span class="tag">trening</span>' : ''}</div><button class="ghost sm" data-act="genDay" data-d="${d}" title="Losuj ten dzień">↻</button></div>
       ${any ? `<div class="xs mut">${r0(dm.kcal)} / ${r0(t.kcal)} kcal · białko ${r0(dm.p)}/${r0(t.p)} g</div>${bar(dm.kcal, t.kcal, 'var(--acc)')}` : '<div class="xs mut">Pusto</div>'}`;
     for (const s of SL()) {
@@ -122,6 +150,7 @@ function viewPlan() {
     h += `</div>`;
   }
   h += `</div>`;
+  if (gone.length) h += `<div class="mut xs" style="margin:-4px 0 12px">Minione dni bez planu: ${gone.join(', ')}</div>`;
   // cook sessions: whole portions, exact totals
   const ses = cookSessions(wk);
   if (ses.length) {
@@ -135,7 +164,7 @@ function viewPlan() {
     h += `</div>`;
   }
   const _sl = shopList(wk).filter(r => r.buy > .01), nItems = _sl.length, shopCost = _sl.reduce((a, r) => a + r.cost, 0), leftVal = _sl.reduce((a, r) => a + Math.max(0, r.qty - r.buy) * unitCost(r.i), 0);
-  h += `<div class="card"><h2>Podsumowanie</h2><div class="sm">${tot.days ? `Średnio <b>${r0(tot.kcal / tot.days)} kcal/dzień</b> · zakupy: <b>${nItems} produktów</b>, ok. <b>${money(shopCost)}</b>${S.profile.budget ? ` (budżet ${money(S.profile.budget)})` : ''} · po tygodniu zostanie ok. <b>${money(leftVal)}</b> (${r0(leftVal / Math.max(1, shopCost) * 100)}% zakupów) · ${r0(tot.clean / Math.max(1, tot.meals) * 100)}% posiłków bez przetworzonych · ${tot.frozen} dań z mrożonek (mniej krojenia i gotowania)` : 'Jeszcze nic nie zaplanowano.'}</div>`;
+  h = h.replace('@@STATS@@', tot.days ? `<div class="row wrap" style="gap:6px;margin:0 0 4px"><span class="pill">${r0(tot.kcal / tot.days)} kcal/dzień</span><span class="pill">zakupy ~${money(shopCost)}${S.profile.budget ? ` z ${money(S.profile.budget)}` : ''}</span><span class="pill soft">${nItems} produktów</span></div><div class="mut xs" style="margin:0 0 12px">Po tygodniu zostanie ok. ${money(leftVal)} · ${r0(tot.clean / Math.max(1, tot.meals) * 100)}% posiłków bez przetworzonych${tot.frozen ? ` · ${tot.frozen} dań z mrożonek` : ''}</div>` : '');
   if (S.profile.budget && tot.cost > S.profile.budget && priced.length) {
     const top = priced.filter(x => !x.it.locked && !x.it.eaten).sort((a, b) => b.cost - a.cost)[0];
     if (top) {
@@ -144,7 +173,9 @@ function viewPlan() {
       if (alt) h += `<div class="warnbox">Ponad budżet. Zamień ${DAYN[wdIdx(top.d)]} (${SLOT_PL[top.s].toLowerCase()}) <b>${esc(cur.name)}</b> → <b>${esc(alt.r.name)}</b> i zaoszczędź ~${money(top.cost - alt.cost)} <button class="sm" data-act="applySwap" data-d="${top.d}" data-s="${top.s}" data-rid="${alt.r.id}" data-serv="${alt.serv}">Zamień</button></div>`;
     }
   }
-  return h + `</div>`;
+  h += `</div>`;
+  if (wk <= weekStart(today())) h += weekReviewCard(wk);
+  return h + saveBar();
 }
 
 function shopRow(r, chk) {
@@ -738,6 +769,10 @@ const ACTIONS = {
   shopNext: () => { UI.week = addDays(weekStart(today()), 7); UI.view = 'shop'; render(); window.scrollTo(0, 0); },
   delRec: ds => withUndo(() => { const x = removeRecipe(ds.id); return `Usunięto: ${x ? x.name : 'przepis'}`; }),
   prefsEdit: prefsDialog,
+  togglePlanSet: () => { UI.planSet = !UI.planSet; render(); },
+  lazyDay: () => withUndo(() => { const n = lazyDay(UI.date); return n ? `Na dziś: ${n} – bez gotowania` : 'Nie znalazłem szybszej opcji albo obiadokolacja jest już zjedzona'; }),
+  stockCheck: stockCheckDialog,
+  stockCheckLater: () => { S.stockCheckedAt = addDays(today(), -7); save(); render(); },
   tasteQuiz: () => tasteQuiz(),
   prefsAnalyze: () => {
     const n = analyzeHistory(), t = tasteSummary(), list = (a, k = 6) => a.slice(0, k).map(x => `${esc(x[0])} (${x[1] > 0 ? '+' : ''}${(Math.round(x[1] * 10) / 10).toString().replace('.', ',')})`).join(', ') || '—';
