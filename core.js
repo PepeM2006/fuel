@@ -185,10 +185,18 @@ const SLOT_DONE_H = { breakfast: 10, lunch: 15, dinner: 21 };
 function stockLogAdd(e) { S.stockLog = S.stockLog || []; S.stockLog.push(Object.assign({ t: Date.now() }, e)); if (S.stockLog.length > 250) S.stockLog.splice(0, S.stockLog.length - 250); }
 function addBought(i, qty, how = 'kupione') {
   if (!i || !(qty > 0)) return;
-  const before = i.pantry || 0, life = lifeOf(i);
+  const before = i.pantry || 0, life = lifeOf(i), exp = life < 999 ? addDays(today(), Math.max(2, Math.round(life * 1.5))) : null;
+  rollBatch(i);
+  if (exp && before > .01 && i.pantryExp) { if (i.pantryNext) { i.pantryNext.q += qty; i.pantryNext.exp = exp; } else i.pantryNext = { q: qty, exp }; }   // the old stock is used first and keeps its own date
+  else if (exp && (!i.pantryExp || before <= .01)) i.pantryExp = exp;
   i.pantry = before + qty;
-  if (life < 999 && (!i.pantryExp || before <= .01)) i.pantryExp = addDays(today(), Math.max(2, Math.round(life * 1.5)));
   stockLogAdd({ id: i.id, q: qty, why: how });
+}
+/* when the old part of a product is used up, the newer batch (with its own date) becomes the stock */
+function rollBatch(i) {
+  if (!i.pantryNext) return;
+  if (!((i.pantry || 0) > .01)) { delete i.pantryNext; return; }
+  if (i.pantry <= i.pantryNext.q + .01) { i.pantryExp = i.pantryNext.exp; delete i.pantryNext; }
 }
 function mealDue(d, s) { const t = today(); return d < t || (d === t && new Date().getHours() >= SLOT_DONE_H[s]); }
 function tickStock() {
@@ -209,12 +217,18 @@ function tickStock() {
       for (const x of r.items) {
         const i = ing(x.ing); if (!i || !(i.pantry > 0)) continue;
         const dec = Math.min(i.pantry, x.amt * it.serv); i.pantry -= dec; it.used[i.id] = (it.used[i.id] || 0) + dec;
+        rollBatch(i);
         if (dec > .01) stockLogAdd({ id: i.id, q: -dec, why: 'zużyte', meal: r.name });
       }
     }
   }
   for (const i of S.ingredients) {   // spoiled: one day of grace after the date
-    if ((i.pantry || 0) > .01 && i.pantryExp && i.pantryExp < addDays(t, -1)) { stockLogAdd({ id: i.id, q: -i.pantry, why: 'przeterminowane' }); i.pantry = 0; delete i.pantryExp; changed = true; }
+    rollBatch(i);
+    if ((i.pantry || 0) > .01 && i.pantryExp && i.pantryExp < addDays(t, -1)) {
+      const nx = i.pantryNext, old = nx ? Math.max(0, i.pantry - nx.q) : i.pantry;   // only the old batch goes off
+      stockLogAdd({ id: i.id, q: -old, why: 'przeterminowane' }); i.pantry -= old; changed = true;
+      if (nx) { i.pantryExp = nx.exp; delete i.pantryNext; } else { i.pantry = 0; delete i.pantryExp; }
+    }
   }
   return changed;
 }
@@ -236,7 +250,7 @@ function projectStock(week) {
       for (const x of r.items) if (m[x.ing] > 0) m[x.ing] = Math.max(0, m[x.ing] - x.amt * it.serv);
     }
   }
-  for (const i of S.ingredients) if (m[i.id] > 0 && i.pantryExp && i.pantryExp < week) m[i.id] = 0;
+  for (const i of S.ingredients) if (m[i.id] > 0 && i.pantryExp && i.pantryExp < week) m[i.id] = (i.pantryNext && i.pantryNext.exp >= week) ? Math.min(m[i.id], i.pantryNext.q) : 0;
   return m;
 }
 const stockFor = week => week > today() ? projectStock(week) : null;
@@ -270,7 +284,7 @@ const lifeOf = i => (i.life != null && i.life !== '' && !isNaN(+i.life)) ? +i.li
 const tripOf = di => ((S.profile.shopTrips | 0) >= 2 && di >= (S.profile.trip2Day ?? 3)) ? 1 : 0;
 /* meat or fish, fresh or frozen (frozen chicken and salmon sit in the freezer aisle) */
 const isMeatIng = i => !!i && (i.aisle === 'Mięso i ryby' || (i.aisle === 'Mrożonki' && i.p >= 15));
-const SPOIL = .8, GAP = .12, PANTRY_EXP = .6;
+const SPOIL = .8, GAP = .12, PANTRY_EXP = 1.4, HOME_USE_P = 1.0, HOME_USE_D = .3, HOME_EARLY = .06;
 /* Pack-fit: the planner tries to use up whole packages by the end of the week (little waste, few different products).
    strong = finish packs (cheapest), normal = balanced, off = ignore. Dishes may change completely from week to week. */
 const varietyW = () => ({
@@ -380,7 +394,8 @@ function generateRaw(week, opts = {}) {
   const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
-  const pantryExp = S.ingredients.filter(i => stockQ(i) > 0 && i.pantryExp && i.pantryExp <= addDays(week, 6));
+  /* everything at home counts: a product that is already in the fridge should be eaten before new ones are bought (the unused rest costs, perishables and what expires this week cost most), and early in the week */
+  const homeAll = S.ingredients.filter(i => stockQ(i) > .01).map(i => ({ i, uc: unitCost(i), w: (i.pantryExp && i.pantryExp <= addDays(week, 6)) ? PANTRY_EXP : lifeOf(i) < 999 ? HOME_USE_P : HOME_USE_D }));
   const meatPref = ({ less: -.15, normal: .22, more: .4 })[S.profile.meatPref || 'normal'], hmc = {}, hasMeat = r => (r.id in hmc ? hmc[r.id] : (hmc[r.id] = r.items.some(x => isMeatIng(ing(x.ing)))));
   /* a week must not end up without meat or fish: minimum share of dinner days that contain it (soft weight alone lost against pack-fit and cost) */
   const meatShare = ({ less: .3, normal: .6, more: .8 })[S.profile.meatPref || 'normal'];
@@ -404,13 +419,13 @@ function generateRaw(week, opts = {}) {
     });
     { const tot = dDays + fixDin, want = Math.min(tot, Math.round(tot * meatShare)), have = mDays + fixMeat; if (have < want) sc += (want - have) * 2.5; }   // meat/fish minimum
     for (const k in cnt) { const rid = k.split('|')[1]; sc += (cnt[k] - 1) * W.repeat + (prevUse[rid] || 0) * .15; }
-    const need = [Object.assign({}, baseNeed[0]), Object.assign({}, baseNeed[1])], usage = {}; let prevB = null;
+    const need = [Object.assign({}, baseNeed[0]), Object.assign({}, baseNeed[1])], usage = {}, fu = {}; let prevB = null;
     for (const d of days) {
       const c2 = ctx[d], tot = ZERO(), pk = pick[d] || {}, di = wdIdx(d);
       for (const s of c2.free) {
         const p = pk[s]; if (!p) continue;
         addM(tot, rm(p.r), p.sv);
-        for (const x of p.r.items) { const nt = need[tripOf(di)]; nt[x.ing] = (nt[x.ing] || 0) + x.amt * p.sv; if (lifeC(x.ing) < 8) { const key = x.ing + '|' + tripOf(di); (usage[key] = usage[key] || new Set()).add(di); } }
+        for (const x of p.r.items) { const nt = need[tripOf(di)]; nt[x.ing] = (nt[x.ing] || 0) + x.amt * p.sv; if (!(fu[x.ing] <= di)) fu[x.ing] = di; if (lifeC(x.ing) < 8) { const key = x.ing + '|' + tripOf(di); (usage[key] = usage[key] || new Set()).add(di); } }
       }
       sc += Math.abs(tot.kcal - c2.kLeft) / Math.max(c2.kLeft, 1) * 3 + Math.max(0, c2.pLeft - tot.p) / Math.max(c2.pLeft, 1) * 4;
       if (pk.lunch && pk.dinner && pk.lunch.r.id === pk.dinner.r.id) sc += .9;
@@ -427,7 +442,7 @@ function generateRaw(week, opts = {}) {
     const sh = basketAll(need);
     if (weekBudget) sc += Math.max(0, sh.cost - weekBudget) / weekBudget * 5;
     sc += sh.cost * .015 + sh.distinct * W.distinct + sh.waste * W.waste;
-    for (const i of pantryExp) sc += Math.max(0, stockQ(i) - ((need[0][i.id] || 0) + (need[1][i.id] || 0))) * unitCost(i) * PANTRY_EXP;   // food in the fridge that expires this week should be used
+    for (const h of homeAll) { const n = (need[0][h.i.id] || 0) + (need[1][h.i.id] || 0), st = stockQ(h.i); sc += Math.max(0, st - n) * h.uc * h.w + (fu[h.i.id] != null ? Math.min(st, n) * h.uc * fu[h.i.id] * HOME_EARLY * (h.w >= HOME_USE_P ? 1 : 0) : 0); }
     return { sc, pick };
   };
   const rnd1 = s => cand[s][Math.floor(Math.random() * cand[s].length)];

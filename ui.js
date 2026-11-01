@@ -219,7 +219,7 @@ function viewShop() {
 function viewFridge() {
   const items = pantryItems().sort((a, b) => ((daysLeft(a) ?? 999) - (daysLeft(b) ?? 999)) || a.name.localeCompare(b.name, 'pl')), ideas = pantryIdeas(8);
   let h = `<div class="card"><div class="row sp"><h2 style="margin:0">Co mam w domu</h2><button class="pri sm" data-act="fridgeAdd">+ Dodaj</button></div>`;
-  h += items.length ? items.map(i => { const dl = daysLeft(i); return `<div class="meal" data-act="fridgeEdit" data-id="${i.id}"><div class="grow"><div class="b">${esc(i.name)}</div><div class="mut xs">${i.pantryExp ? `ważne do ${esc(fmtDay(i.pantryExp))}${dl != null && dl <= 2 ? ' – <b style="color:var(--clay)">zużyj szybko</b>' : ''}` : 'bez daty ważności'}</div></div><div class="b">${fmtAmt(i.pantry, i.unit)}</div></div>`; }).join('')
+  h += items.length ? items.map(i => { const dl = daysLeft(i); return `<div class="meal" data-act="fridgeEdit" data-id="${i.id}"><div class="grow"><div class="b">${esc(i.name)}</div><div class="mut xs">${i.pantryExp ? `ważne do ${esc(fmtDay(i.pantryExp))}${dl != null && dl <= 2 ? ' – <b style="color:var(--clay)">zużyj szybko</b>' : ''}` : 'bez daty ważności'}${i.pantryNext ? ` · nowe ${fmtAmt(i.pantryNext.q, i.unit)} do ${esc(fmtDay(i.pantryNext.exp))}` : ''}</div></div><div class="b">${fmtAmt(i.pantry, i.unit)}</div></div>`; }).join('')
     : `<div class="mut sm" style="margin-top:10px">Dodaj to, co masz w lodówce i szafkach. Planer zużyje to najpierw, lista zakupów pokaże te produkty jako odhaczone, a poniżej dostaniesz pomysły, co z tego zrobić.</div>`;
   h += `<div class="mut xs" style="margin-top:10px">Stan liczy się sam: zakupy dodają całe opakowania, po każdym posiłku odejmuje się to, co poszło do dania, a przeterminowane rzeczy znikają. Popraw ilość, jeśli się nie zgadza.</div></div>`;
   const fl = weekFlow();
@@ -247,7 +247,7 @@ function fridgeAdd() {
 function fridgeEdit(id) {
   const i = ing(id); if (!i) return;
   modal(i.name, `<div class="grid2"><div><label>Ile masz (${i.unit})</label><input id="fe_a" inputmode="decimal" value="${i.pantry || 0}"></div><div><label>Ważne do</label><input id="fe_e" type="date" value="${i.pantryExp || ''}"></div></div>`,
-    [{ label: 'Nie mam już', cls: 'danger', fn: () => { i.pantry = 0; delete i.pantryExp; save(); closeModal(); render(); } },
+    [{ label: 'Nie mam już', cls: 'danger', fn: () => { i.pantry = 0; delete i.pantryExp; delete i.pantryNext; save(); closeModal(); render(); } },
     { label: 'Zapisz', cls: 'pri', fn: () => { i.pantry = Math.max(0, num(val('fe_a'))); if (val('fe_e')) i.pantryExp = val('fe_e'); else delete i.pantryExp; save(); closeModal(); render(); } }]);
 }
 function ideaPlan(rid) {
