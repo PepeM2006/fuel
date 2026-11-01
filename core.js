@@ -219,6 +219,45 @@ function tickStock() {
   return changed;
 }
 
+/* ============ what will be left: the stock as it will be when a later week starts ============
+   Planning next week from the weekend must not count food that the rest of this week still eats, and must not count things that
+   will be spoiled by then. While generating / listing a later week, stockQ() reads this projection instead of the real stock. */
+let STOCK_AT = null;
+const stockQ = i => STOCK_AT ? (STOCK_AT[i.id] || 0) : (i.pantry || 0);
+function projectStock(week) {
+  const t = today(), m = {};
+  for (const i of S.ingredients) if ((i.pantry || 0) > .01) m[i.id] = i.pantry;
+  if (week <= t) return m;
+  for (const [d, dp] of Object.entries(S.plan)) {
+    if (d < t || d >= week) continue;
+    for (const s of SLOTS_ALL) {
+      const it = dp[s]; if (!it || it.eaten || it.auto || it.skipped) continue;
+      const r = rec(it.rid); if (!r) continue;
+      for (const x of r.items) if (m[x.ing] > 0) m[x.ing] = Math.max(0, m[x.ing] - x.amt * it.serv);
+    }
+  }
+  for (const i of S.ingredients) if (m[i.id] > 0 && i.pantryExp && i.pantryExp < week) m[i.id] = 0;
+  return m;
+}
+const stockFor = week => week > today() ? projectStock(week) : null;
+/* what the current week did with the food: bought, used so far, and what is left at the end of it */
+function weekFlow() {
+  const wk = weekStart(today()), t0 = parseD(wk).getTime(), end = projectStock(addDays(wk, 7)), f = {};
+  for (const e of S.stockLog || []) {
+    if (e.t < t0) continue;
+    const o = f[e.id] || (f[e.id] = { bought: 0, used: 0 });
+    if (e.why === 'kupione') o.bought += e.q; else if (e.why === 'zużyte') o.used -= e.q;
+  }
+  for (const i of S.ingredients) if ((i.pantry || 0) > .01 && !f[i.id]) f[i.id] = { bought: 0, used: 0 };
+  return Object.entries(f).map(([id, o]) => ({ i: ing(id), bought: o.bought, used: o.used, now: ing(id) ? (ing(id).pantry || 0) : 0, end: end[id] || 0 })).filter(x => x.i && (x.bought > .01 || x.used > .01 || x.now > .01))
+    .sort((a, b) => (b.end * unitCost(b.i)) - (a.end * unitCost(a.i)));
+}
+/* leftovers that count for a later week (name, amount) – for the hint on the plan */
+function leftoversFor(week) {
+  const m = stockFor(week); if (!m) return [];
+  return Object.entries(m).map(([id, q]) => ({ i: ing(id), q })).filter(x => x.i && x.q > .01).sort((a, b) => b.q * unitCost(b.i) - a.q * unitCost(a.i));
+}
+
 /* ============ planner ============ */
 /* How long food keeps after buying (days, in the fridge). Chicken bought on Sunday should not be eaten on Friday:
    the planner keeps every perishable ingredient within its window and eats it on consecutive days. */
@@ -246,7 +285,7 @@ function basketOf(need) {
   let cost = 0, distinct = 0, waste = 0;
   for (const [id, n0] of Object.entries(need)) {
     const i = ing(id); if (!i) continue;
-    const n = Math.max(0, n0 - (i.pantry || 0)); if (n <= .01) continue;
+    const n = Math.max(0, n0 - stockQ(i)); if (n <= .01) continue;
     distinct++;
     if (i.pack > 1 && i.price) {
       const packs = Math.ceil(n / i.pack - 1e-9); cost += packs * i.price;
@@ -280,7 +319,7 @@ function optionPool(slot, week, ignoreSet = false) {
   let pool = S.recipes.filter(r => r.slots.includes(slot) && r.items.length && recipeMacros(r).kcal > 0 && (!S.profile.clean || isClean(r) || (r.tags || []).includes('kupne')));
   if (slot === 'breakfast' && S.profile.breakfastQuick !== false) { const q = pool.filter(quickBreakfast); if (q.length) pool = q; }
   if (slot === 'lunch' && S.profile.noSpill !== false) { const q = pool.filter(r => !spillable(r)); if (q.length) pool = q; }
-  if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || ((ing(x.ing) || {}).pantry || 0) > 0));
+  if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || (ing(x.ing) && stockQ(ing(x.ing)) > 0)));
   if (style === 'combos') pool = pool.filter(r => (r.tags || []).includes('kupne'));
   const combos = (style === 'recipes' || (slot !== 'lunch' && slot !== 'dinner')) ? [] : comboPool(slot, week, set);
   const have = new Set(pool.map(r => r.name));
@@ -303,7 +342,8 @@ function splitRun(run, N) {
 }
 const bigPen = sv => Math.max(0, sv - 1.5) * .25 + Math.max(0, sv - 2) * .6;   // huge multipliers of a recipe = silly portions (a litre of soup)
 /* Week-level generator: lunch & dinner recipes are cooked once and eaten on `prepDays` consecutive days (same portion size each day). */
-function generate(week, opts = {}) {
+function generate(week, opts = {}) { const prev = STOCK_AT; STOCK_AT = stockFor(week); try { return generateRaw(week, opts); } finally { STOCK_AT = prev; } }
+function generateRaw(week, opts = {}) {
   const start = today(), warnings = [], slots = SL(), N = Math.max(1, S.profile.prepDays | 0);
   const days = [];
   for (let i = 0; i < 7; i++) { const d = addDays(week, i); if (d >= start && (!opts.only || opts.only === d)) days.push(d); }
@@ -340,7 +380,7 @@ function generate(week, opts = {}) {
   const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
   const lc = {}, lifeC = id => (id in lc ? lc[id] : (lc[id] = ing(id) ? lifeOf(ing(id)) : 999));
-  const pantryExp = S.ingredients.filter(i => (i.pantry || 0) > 0 && i.pantryExp && i.pantryExp <= addDays(week, 6));
+  const pantryExp = S.ingredients.filter(i => stockQ(i) > 0 && i.pantryExp && i.pantryExp <= addDays(week, 6));
   const meatPref = ({ less: -.15, normal: .22, more: .4 })[S.profile.meatPref || 'normal'], hmc = {}, hasMeat = r => (r.id in hmc ? hmc[r.id] : (hmc[r.id] = r.items.some(x => isMeatIng(ing(x.ing)))));
   /* a week must not end up without meat or fish: minimum share of dinner days that contain it (soft weight alone lost against pack-fit and cost) */
   const meatShare = ({ less: .3, normal: .6, more: .8 })[S.profile.meatPref || 'normal'];
@@ -387,7 +427,7 @@ function generate(week, opts = {}) {
     const sh = basketAll(need);
     if (weekBudget) sc += Math.max(0, sh.cost - weekBudget) / weekBudget * 5;
     sc += sh.cost * .015 + sh.distinct * W.distinct + sh.waste * W.waste;
-    for (const i of pantryExp) sc += Math.max(0, (i.pantry || 0) - ((need[0][i.id] || 0) + (need[1][i.id] || 0))) * unitCost(i) * PANTRY_EXP;   // food in the fridge that expires this week should be used
+    for (const i of pantryExp) sc += Math.max(0, stockQ(i) - ((need[0][i.id] || 0) + (need[1][i.id] || 0))) * unitCost(i) * PANTRY_EXP;   // food in the fridge that expires this week should be used
     return { sc, pick };
   };
   const rnd1 = s => cand[s][Math.floor(Math.random() * cand[s].length)];
@@ -506,7 +546,8 @@ function removeLog(d, id) {
 /* ============ shopping ============ */
 /* rows: exact need (rounded up to a practical amount) + the packs that cover it. With two shopping trips a week,
    each trip only holds the days it feeds, so perishables are bought fresh. Pantry stock is used up first. */
-function shopList(week, trip = null) {
+function shopList(week, trip = null) { const prev = STOCK_AT; STOCK_AT = stockFor(week); try { return shopListRaw(week, trip); } finally { STOCK_AT = prev; } }
+function shopListRaw(week, trip = null) {
   const start = week < today() && addDays(week, 6) >= today() ? today() : week, nT = (S.profile.shopTrips | 0) >= 2 ? 2 : 1;
   const need = [{}, {}], uses = {};
   for (let i = 0; i < 7; i++) {
@@ -517,7 +558,7 @@ function shopList(week, trip = null) {
       for (const x of r.items) { need[tr][x.ing] = (need[tr][x.ing] || 0) + x.amt * it.serv; (uses[x.ing + '|' + tr] = uses[x.ing + '|' + tr] || []).push(i); }
     }
   }
-  const left = {}; S.ingredients.forEach(i => left[i.id] = i.pantry || 0);
+  const left = {}; S.ingredients.forEach(i => left[i.id] = stockQ(i));
   const rows = [];
   for (let tr = 0; tr < nT; tr++) for (const [id, n] of Object.entries(need[tr])) {
     const i = ing(id); if (!i) continue;

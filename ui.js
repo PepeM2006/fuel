@@ -107,6 +107,11 @@ function planPrefsLine() {
   const p = S.profile, meat = { less: 'rzadziej', normal: 'normalnie', more: 'często' }[p.meatPref || 'normal'], fz = { normal: 'rzadko', some: 'czasem', more: 'często' }[p.frozenPref || 'some'];
   return `Gotuję raz na ${p.prepDays === 1 ? 'dzień' : p.prepDays + ' dni'} · mięso: ${meat} · mrożonki: ${fz} · zakupy ${(p.shopTrips | 0) >= 2 ? '2×' : '1×'} w tygodniu`;
 }
+function leftoverLine(wk) {
+  const l = leftoversFor(wk); if (!l.length) return '';
+  const top = l.slice(0, 5).map(x => `${x.i.name.toLowerCase()} ${fmtAmt(niceQty(x.q, x.i.unit), x.i.unit)}`).join(', ');
+  return `<div class="mut xs" style="margin-top:6px">Planer liczy z tym, co zostanie z tego tygodnia: ${esc(top)}${l.length > 5 ? ` i jeszcze ${l.length - 5}` : ''}. <button class="sm" data-act="ftabFridge" style="margin-left:6px">Zobacz wszystko</button></div>`;
+}
 function quizOffer() { return S.prefs.quizDone || (S.prefs.quizSeen || []).length ? '' : `<div class="card" style="margin-bottom:10px"><b>Dopasuj plany do siebie</b><div class="sm mut" style="margin:4px 0 8px">Minuta quizu: oceń kilkadziesiąt dań, a planer będzie wybierał to, co Ci smakuje.</div><button class="sm pri" data-act="tasteQuiz">Zacznij quiz</button></div>`; }
 function viewPlan() {
   const wk = UI.week, tot = { kcal: 0, cost: 0, days: 0, clean: 0, meals: 0, frozen: 0 }, menu = S.menus[wk] || [];
@@ -115,7 +120,7 @@ function viewPlan() {
   h += quizOffer() + stockCheckBanner();
   const hasPlan = Array.from({ length: 7 }, (_, k) => S.plan[addDays(wk, k)] || {}).some(dp => SL().some(s => dp[s]));
   h += `<div class="card"><div class="row wrap"><button class="pri" data-act="gen">${hasPlan ? 'Ułóż tydzień od nowa' : 'Ułóż tydzień'}</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost" data-act="togglePlanSet" aria-expanded="${UI.planSet ? 'true' : 'false'}">${UI.planSet ? 'Mniej ▴' : 'Ustawienia ▾'}</button></div>
-    <div class="mut xs" style="margin-top:8px">${esc(planPrefsLine())}${menu.length ? ' · własne menu' : ''}${(S.bases[wk] || []).length ? ' · zestaw półproduktów' : ''}</div>`;
+    <div class="mut xs" style="margin-top:8px">${esc(planPrefsLine())}${menu.length ? ' · własne menu' : ''}${(S.bases[wk] || []).length ? ' · zestaw półproduktów' : ''}</div>${leftoverLine(wk)}`;
   if (UI.planSet) h += `<div class="row wrap" style="margin-top:12px"><button class="sm" data-act="menuPicker">Wybierz dania na tydzień</button><button class="sm" data-act="basePicker">Półprodukty na tydzień</button><button class="sm danger" data-act="clearWeek">Wyczyść tydzień</button></div>
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Bez wybranego menu generator użyje wszystkich przepisów.'}</div>
     ${(S.bases[wk] || []).length ? `<div class="mut sm" style="margin-top:8px"><b>Zestaw półproduktów (${S.bases[wk].length}):</b> ${S.bases[wk].map(k => ing(k)).filter(Boolean).map(i => `<span class="tag">${esc(i.name.toLowerCase())}</span>`).join(' ')}</div>` : ''}
@@ -197,7 +202,7 @@ function viewShop() {
     <div class="row wrap"><button class="pri" data-act="toReminders">Do Przypomnień</button><button data-act="copyList">Kopiuj / udostępnij</button></div>
     <div class="row wrap" style="margin-top:8px"><button class="sm" data-act="checkAll">Kupiłem wszystko</button><button class="sm" data-act="ftabFridge">Co mam w domu</button></div>
     <div class="mut xs" style="margin-top:8px">Duża liczba po prawej to dokładnie tyle, ile potrzebujesz. Zaznacz kupione – trafi od razu do „W domu”, a zużycie odliczy się samo po każdym posiłku.</div>`;
-  if (covered.length) h += `<div class="card" style="margin-top:12px;padding-top:4px"><div class="aisle">Masz w domu – nic nie kupujesz</div>${covered.map(r => `<div class="shop chk"><input type="checkbox" checked disabled><div class="grow nm"><div class="b">${esc(r.i.name)}</div><div class="mut xs">potrzeba ${fmtAmt(niceQty(r.need, r.i.unit), r.i.unit)}</div></div><div class="r xs mut">z lodówki</div></div>`).join('')}</div>`;
+  if (covered.length) h += `<div class="card" style="margin-top:12px;padding-top:4px"><div class="aisle">${wk > today() ? 'Masz w domu lub zostanie z tego tygodnia – nic nie kupujesz' : 'Masz w domu – nic nie kupujesz'}</div>${covered.map(r => `<div class="shop chk"><input type="checkbox" checked disabled><div class="grow nm"><div class="b">${esc(r.i.name)}</div><div class="mut xs">potrzeba ${fmtAmt(niceQty(r.need, r.i.unit), r.i.unit)}</div></div><div class="r xs mut">${wk > today() ? 'zostanie' : 'z lodówki'}</div></div>`).join('')}</div>`;
   for (let tr = 0; tr < nT; tr++) {
     const rows = shopSorted(all.filter(r => r.trip === tr));
     if (nT === 2) h += `<h2 style="margin:18px 0 0">${tripLabel(tr)} · ${rows.length} pozycji · ~${money(rows.reduce((a, r) => a + r.cost, 0))}</h2>`;
@@ -217,6 +222,10 @@ function viewFridge() {
   h += items.length ? items.map(i => { const dl = daysLeft(i); return `<div class="meal" data-act="fridgeEdit" data-id="${i.id}"><div class="grow"><div class="b">${esc(i.name)}</div><div class="mut xs">${i.pantryExp ? `ważne do ${esc(fmtDay(i.pantryExp))}${dl != null && dl <= 2 ? ' – <b style="color:var(--clay)">zużyj szybko</b>' : ''}` : 'bez daty ważności'}</div></div><div class="b">${fmtAmt(i.pantry, i.unit)}</div></div>`; }).join('')
     : `<div class="mut sm" style="margin-top:10px">Dodaj to, co masz w lodówce i szafkach. Planer zużyje to najpierw, lista zakupów pokaże te produkty jako odhaczone, a poniżej dostaniesz pomysły, co z tego zrobić.</div>`;
   h += `<div class="mut xs" style="margin-top:10px">Stan liczy się sam: zakupy dodają całe opakowania, po każdym posiłku odejmuje się to, co poszło do dania, a przeterminowane rzeczy znikają. Popraw ilość, jeśli się nie zgadza.</div></div>`;
+  const fl = weekFlow();
+  if (fl.length) h += `<div class="card"><h2>Ten tydzień: kupione, zużyte, zostanie</h2><div class="mut xs" style="margin:-4px 0 6px">„Zostanie” to prognoza na niedzielę wieczorem, po posiłkach, które jeszcze masz w planie. To trafia do planowania kolejnego tygodnia.</div>
+    <div class="row sp xs mut" style="padding:3px 0"><span class="grow">Produkt</span><span style="width:58px;text-align:right">kupione</span><span style="width:58px;text-align:right">zużyte</span><span style="width:64px;text-align:right">zostanie</span></div>
+    ${fl.map(x => `<div class="row sp sm" style="padding:5px 0;border-top:1px solid var(--line)"><span class="grow">${esc(x.i.name)}</span><span class="mut" style="width:58px;text-align:right">${x.bought > .01 ? fmtAmt(x.bought, x.i.unit) : '–'}</span><span class="mut" style="width:58px;text-align:right">${x.used > .01 ? fmtAmt(x.used, x.i.unit) : '–'}</span><b style="width:64px;text-align:right">${x.end > .01 ? fmtAmt(niceQty(x.end, x.i.unit), x.i.unit) : '0'}</b></div>`).join('')}</div>`;
   const lg = (S.stockLog || []).slice(-12).reverse();
   if (lg.length) h += `<div class="card"><h2>Ostatnie zmiany</h2>${lg.map(e => { const i = ing(e.id); return i ? `<div class="row sp sm" style="padding:4px 0;border-top:1px solid var(--line)"><span>${esc(i.name)}<span class="mut xs"> · ${esc(e.why)}${e.meal ? ' – ' + esc(e.meal) : ''}</span></span><b>${e.q > 0 ? '+' : '−'}${fmtAmt(Math.abs(e.q), i.unit)}</b></div>` : ''; }).join('')}</div>`;
   if (items.length) {
