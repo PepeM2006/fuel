@@ -238,11 +238,11 @@ function viewFridge() {
 function fridgeAdd() {
   const list = S.ingredients.slice().sort((a, b) => a.name.localeCompare(b.name, 'pl'));
   const exp = () => { const e = val('fa_e'); return e || ''; };
-  modal('Dodaj do domu', `<label>Produkt</label><select id="fa_i">${list.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('')}</select>
+  modal('Dodaj do domu', `<label>Produkt</label>${pickHtml('fa_i', list)}
     <div class="grid2"><div><label>Ile masz</label><input id="fa_a" inputmode="decimal" placeholder="np. 400"></div><div><label>Ważne do (opcjonalnie)</label><input id="fa_e" type="date"></div></div>
     <div class="mut xs" style="margin-top:8px">Ilość w jednostce produktu (g, ml lub szt.). Nie ma produktu? Dodaj go w „Składniki".</div><div id="fa_log" class="sm" style="margin-top:8px"></div>`,
-    [{ label: 'Dodaj i kolejny', fn: () => { const i = ing(val('fa_i')), a = num(val('fa_a')); if (!i || a <= 0) return toast('Wpisz ilość'); i.pantry = (i.pantry || 0) + a; if (exp()) i.pantryExp = exp(); save(); $('#fa_log').innerHTML += `✓ ${esc(i.name)} ${fmtAmt(a, i.unit)}<br>`; $('#fa_a').value = ''; $('#fa_a').focus(); } },
-    { label: 'Gotowe', cls: 'pri', fn: () => { const i = ing(val('fa_i')), a = num(val('fa_a')); if (i && a > 0) { i.pantry = (i.pantry || 0) + a; if (exp()) i.pantryExp = exp(); } save(); closeModal(); render(); } }]);
+    [{ label: 'Dodaj i kolejny', fn: () => { const i = ing(pickId('fa_i')), a = num(val('fa_a')); if (!i) return toast('Wybierz produkt'); if (a <= 0) return toast('Wpisz ilość'); i.pantry = (i.pantry || 0) + a; stockLogAdd({ id: i.id, q: a, why: 'dodane ręcznie' }); if (exp()) i.pantryExp = exp(); save(); $('#fa_log').innerHTML += `✓ ${esc(i.name)} ${fmtAmt(a, i.unit)}<br>`; $('#fa_a').value = ''; $('#fa_e').value = ''; pickSet('fa_i', null); $('#fa_i_t').focus(); } },
+    { label: 'Gotowe', cls: 'pri', fn: () => { const i = ing(pickId('fa_i')), a = num(val('fa_a')); if (i && a > 0) { i.pantry = (i.pantry || 0) + a; stockLogAdd({ id: i.id, q: a, why: 'dodane ręcznie' }); if (exp()) i.pantryExp = exp(); } save(); closeModal(); render(); } }]);
 }
 function fridgeEdit(id) {
   const i = ing(id); if (!i) return;
@@ -404,6 +404,25 @@ function modal(title, body, buttons = []) {
 }
 const closeModal = () => { const m = $('#modal'); if (m.open) m.close(); if (UI.needRender) { UI.needRender = false; render(); } };
 const val = id => $('#' + id)?.value;
+/* type-ahead product picker: you type, it suggests (accents and Dutch names count too); the chosen product id sits in a hidden input */
+const PICK = {};
+const pickNorm = s => String(s || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function pickHtml(id, list, ph = 'Zacznij pisać, np. kurczak') {
+  PICK[id] = list.map(i => ({ i, k: pickNorm(i.name + ' ' + (i.nl || '')), n: pickNorm(i.name) }));
+  return `<div class="pick"><input id="${id}_t" data-pick="${id}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${ph}"><input type="hidden" id="${id}"><div class="pick-l" id="${id}_l" hidden></div></div>`;
+}
+function pickMatches(id, q) {
+  const w = pickNorm(q).split(/\s+/).filter(Boolean); if (!w.length) return [];
+  return (PICK[id] || []).filter(x => w.every(t => x.k.includes(t))).sort((a, b) => (b.n.startsWith(w[0]) - a.n.startsWith(w[0])) || (a.n.length - b.n.length)).slice(0, 8).map(x => x.i);
+}
+const pickId = id => val(id) || (pickMatches(id, val(id + '_t'))[0] || {}).id || '';   // what you typed counts even if you did not tap a suggestion
+function pickSet(id, i) { const t = $('#' + id + '_t'); if (t) t.value = i ? i.name : ''; const h = $('#' + id); if (h) h.value = i ? i.id : ''; const l = $('#' + id + '_l'); if (l) l.hidden = true; }
+function pickShow(t) {
+  const id = t.dataset.pick, l = $('#' + id + '_l'), h = $('#' + id); h.value = '';
+  const m = pickMatches(id, t.value);
+  l.innerHTML = m.map(i => `<div class="pick-i" data-pi="${i.id}" data-pk="${id}">${esc(i.name)}<span class="mut xs"> ${i.unit}${i.nl ? ' · ' + esc(i.nl) : ''}</span></div>`).join('') || (t.value.trim() ? '<div class="pick-i mut">Nie ma takiego produktu</div>' : '');
+  l.hidden = !l.innerHTML;
+}
 
 /* ============ editors ============ */
 function howHtml(txt) { const L = String(txt).split('\n').map(x => x.trim()).filter(Boolean); return L.length > 1 ? `<ol class="steps">${L.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<div class="sm">${esc(L[0] || '')}</div>`; }
@@ -458,11 +477,11 @@ function prefsDialog() {
   modal('Czego nie jesz?', `<p class="sm" style="margin-top:0">Zaznacz to, czego <b>nigdy</b> nie chcesz widzieć w planie i propozycjach. Resztę Fuel nauczy się z tego, co wybierasz.</p>
     <div class="chips">${PREF_GROUPS.map((g, k) => `<label class="row chk chip"><input type="checkbox" data-pg="${k}" ${checked(g) ? 'checked' : ''}> ${esc(g.n)}</label>`).join('')}</div>
     ${extra.length ? `<h2 style="margin-top:12px">Inne wykluczone składniki</h2><div class="chips">${extra.map(i => `<label class="row chk chip"><input type="checkbox" data-px="${i}" checked> ${esc(ing(i).name.replace(/ \(.*\)/, '').toLowerCase())}</label>`).join('')}</div>` : ''}
-    <label>Wyklucz inny składnik</label><select id="pf_add"><option value="">— wybierz —</option>${S.ingredients.filter(i => !p.banIng.includes(i.id) && !covered.has(i.id)).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select>`,
+    <label>Wyklucz inny składnik</label>${pickHtml('pf_add', S.ingredients.filter(i => !p.banIng.includes(i.id) && !covered.has(i.id)).sort((a, b) => a.name.localeCompare(b.name, 'pl')), 'Zacznij pisać, np. brokuł')}`,
     [{ label: 'Zapisz', cls: 'pri', fn: () => {
       let bi = [...$$('[data-px]').filter(x => x.checked).map(x => x.dataset.px)], bk = [];
       $$('[data-pg]').forEach(x => { if (!x.checked) return; const g = PREF_GROUPS[+x.dataset.pg]; if (g.kind) bk.push(g.kind); else bi.push(...g.ing); });
-      if (val('pf_add')) bi.push(val('pf_add'));
+      if (val('pf_add')) bi.push(val('pf_add'));   // only a chosen suggestion counts here (banning by a half-typed word would be a surprise)
       closeModal(); withUndo(() => { const n = applyBans(bi, bk); S.prefsAsked = true; return n ? 'Zapisane – usunąłem takie dania z planu i uzupełniłem inne' : 'Zapisane'; });
     } }]);
 }
@@ -689,14 +708,14 @@ function addFood() {
     <div id="af_body"></div><label>Posiłek</label><select id="af_slot">${SLOTS_ALL.map(s => `<option value="${s}">${SLOT_PL[s]}</option>`).join('')}</select>`,
     [{ label: 'Dodaj', cls: 'pri', fn: () => {
       const slot = val('af_slot'), mode = addFood.mode || 'ing'; let e;
-      if (mode === 'ing') { const i = ing(val('af_i')), a = num(val('af_a')); if (!i || !a) return toast('Wybierz składnik i ilość'); e = { name: `${i.name} ${fmtAmt(a, i.unit)}`, ...ingMacros(i, a) }; }
+      if (mode === 'ing') { const i = ing(pickId('af_i')), a = num(val('af_a')); if (!i || !a) return toast('Wybierz składnik i ilość'); e = { name: `${i.name} ${fmtAmt(a, i.unit)}`, ...ingMacros(i, a) }; }
       else if (mode === 'rec') { const r = rec(val('af_r')), sv = num(val('af_a')) || 1; if (!r) return toast('Wybierz przepis'); e = { name: `${r.name} ×${sv}`, ...addM(ZERO(), recipeMacros(r), sv) }; }
       else { if (!num(val('af_k'))) return toast('Podaj kalorie'); e = { name: val('af_n') || 'Jedzenie', kcal: num(val('af_k')), p: num(val('af_p')), c: num(val('af_c')), f: num(val('af_f')) }; }
       e.id = uid(); e.slot = slot; (S.log[d] = S.log[d] || []).push(e); save(); closeModal(); render();
     } }]);
   const paint = mode => {
     addFood.mode = mode; $$('[data-ftab2]').forEach(b => b.classList.toggle('sel', b.dataset.ftab2 === mode));
-    $('#af_body').innerHTML = mode === 'ing' ? `<label>Składnik</label><select id="af_i">${S.ingredients.slice().sort((a, b) => a.name.localeCompare(b.name, 'pl')).map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('')}</select><label>Ilość</label><input id="af_a" inputmode="decimal" placeholder="np. 150">`
+    $('#af_body').innerHTML = mode === 'ing' ? `<label>Składnik</label>${pickHtml('af_i', S.ingredients.slice().sort((a, b) => a.name.localeCompare(b.name, 'pl')))}<label>Ilość</label><input id="af_a" inputmode="decimal" placeholder="np. 150">`
       : mode === 'rec' ? `<label>Przepis</label><select id="af_r">${S.recipes.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select><label>Porcje</label><input id="af_a" inputmode="decimal" value="1">`
         : `<label>Nazwa</label><input id="af_n"><div class="grid2"><div><label>Kalorie</label><input id="af_k" inputmode="decimal"></div><div><label>Białko g</label><input id="af_p" inputmode="decimal"></div><div><label>Węgle g</label><input id="af_c" inputmode="decimal"></div><div><label>Tłuszcz g</label><input id="af_f" inputmode="decimal"></div></div>`;
   };
@@ -895,6 +914,14 @@ async function aiTest() {   // step-by-step diagnosis so a failure always says W
   show();
 }
 
+document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.pick) pickShow(e.target); });
+document.addEventListener('focusin', e => { if (e.target.dataset && e.target.dataset.pick && e.target.value) pickShow(e.target); });
+document.addEventListener('keydown', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.pick) return;
+  if (e.key === 'Enter') { e.preventDefault(); const i = pickMatches(t.dataset.pick, t.value)[0]; if (i) { pickSet(t.dataset.pick, i); const f = $('#fa_a') || $('#af_a'); if (f) f.focus(); } }
+  else if (e.key === 'Escape') { const l = $('#' + t.dataset.pick + '_l'); if (l && !l.hidden) { e.stopPropagation(); l.hidden = true; } }
+});
+document.addEventListener('pointerdown', e => { const x = e.target.closest && e.target.closest('.pick-i[data-pi]'); if (!x) return; e.preventDefault(); pickSet(x.dataset.pk, ing(x.dataset.pi)); const f = $('#fa_a') || $('#af_a'); if (f) f.focus(); });
 document.addEventListener('click', e => {
   const mb = e.target.closest('[data-mbtn]'); if (mb) { const b = modal.btns[+mb.dataset.mbtn]; if (b && b.fn) b.fn(); return; }
   const t = e.target.closest('[data-act]'); if (!t || t.tagName === 'DIALOG') return;
