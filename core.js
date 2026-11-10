@@ -39,7 +39,9 @@ function migrate() {
   S.prefs = Object.assign({ learn: true, banIng: [], banKind: [], banRec: [], score: {}, log: [], rate: {}, dropped: [], promoted: [], autoNew: true }, S.prefs || {}); S.ratings = S.ratings || [];
   S.profile = Object.assign({}, d.profile, S.profile || {});
   if (!S.lastBackup) S.lastBackup = today();
-  if ((S.profileVer || 0) < 2) { if (S.profile.frozenPref === 'more') S.profile.frozenPref = 'some'; S.profileVer = 2; }   // the first 'more' default was too strong
+  if ((S.profileVer || 0) < 3) { if (!S.profile.lunchMode) S.profile.lunchMode = 'dinner'; }   // no time to cook a separate school lunch
+  if ((S.profileVer || 0) < 2) { if (S.profile.frozenPref === 'more') S.profile.frozenPref = 'some'; S.profileVer = 2; }
+  if ((S.profileVer || 0) < 3) S.profileVer = 3;   // the first 'more' default was too strong
   if (S.profileSet === undefined && (S.setupDone || S.rev > 0)) S.profileSet = true;   // existing users are not asked again
   S.recipes.forEach(r => { r.tags = r.tags || []; r.how = r.how || ''; r.prep = r.prep || ''; });
   S.ingredients.forEach(i => { if (i.proc == null) i.proc = 0; if (i.nl == null) i.nl = ''; });
@@ -324,6 +326,7 @@ function spillable(r) {
   let liq = 0, dairy = 0; for (const x of r.items) { if (SPILL_LIQ.has(x.ing)) liq += x.amt; if (SPILL_DAIRY.has(x.ing)) dairy += x.amt; }
   return liq >= 100 || dairy >= 250;
 }
+const NOCOOK_TAGS = new Set(['bez gotowania', 'na zimno', 'kupne', 'do zabrania']), noCook = r => (r.tags || []).some(t => NOCOOK_TAGS.has(t));
 const quickBreakfast = r => !(r.tags || []).length || (r.tags || []).some(t => t === 'shake' || t === 'szybkie' || t === 'bez gotowania' || t === 'do zabrania');
 /* every dish that may be offered for a slot: your recipes + dishes assembled from base products (only for lunch and dinner).
    Rules: breakfast = a shake or something quick; "na uczelnię" = nothing that can spill. With a chosen base set only dishes
@@ -333,9 +336,10 @@ function optionPool(slot, week, ignoreSet = false) {
   let pool = S.recipes.filter(r => r.slots.includes(slot) && r.items.length && recipeMacros(r).kcal > 0 && (!S.profile.clean || isClean(r) || (r.tags || []).includes('kupne')));
   if (slot === 'breakfast' && S.profile.breakfastQuick !== false) { const q = pool.filter(quickBreakfast); if (q.length) pool = q; }
   if (slot === 'lunch' && S.profile.noSpill !== false) { const q = pool.filter(r => !spillable(r)); if (q.length) pool = q; }
+  if (slot === 'lunch' && S.profile.lunchMode === 'nocook') { const q = pool.filter(noCook); if (q.length >= 6) pool = q; }
   if (set) pool = pool.filter(r => r.items.every(x => set.has(x.ing) || COMBO_STAPLES.has(x.ing) || (ing(x.ing) && stockQ(ing(x.ing)) > 0)));
   if (style === 'combos') pool = pool.filter(r => (r.tags || []).includes('kupne'));
-  const combos = (style === 'recipes' || (slot !== 'lunch' && slot !== 'dinner')) ? [] : comboPool(slot, week, set);
+  const combos = (style === 'recipes' || (slot !== 'lunch' && slot !== 'dinner') || (slot === 'lunch' && S.profile.lunchMode === 'nocook')) ? [] : comboPool(slot, week, set);
   const have = new Set(pool.map(r => r.name));
   return pool.concat(combos.filter(x => !have.has(x.name))).filter(r => !isBanned(r));   // things you never want are never offered
 }
@@ -359,6 +363,7 @@ const bigPen = sv => Math.max(0, sv - 1.5) * .25 + Math.max(0, sv - 2) * .6;   /
 function generate(week, opts = {}) { const prev = STOCK_AT; STOCK_AT = stockFor(week); try { return generateRaw(week, opts); } finally { STOCK_AT = prev; } }
 function generateRaw(week, opts = {}) {
   const start = today(), warnings = [], slots = SL(), N = Math.max(1, S.profile.prepDays | 0);
+  const LFD = S.profile.lunchMode === 'dinner' && slots.includes('lunch');   // lunch = a packed portion of the evening before's dinner, nothing cooked separately
   const days = [];
   for (let i = 0; i < 7; i++) { const d = addDays(week, i); if (d >= start && (!opts.only || opts.only === d)) days.push(d); }
   if (!days.length) return ['Ten tydzień jest już za nami'];
@@ -374,8 +379,18 @@ function generateRaw(week, opts = {}) {
     ctx[d] = { dp, free, kLeft: Math.max(0, tgt.kcal - lg.kcal - fx.kcal), pLeft: Math.max(0, tgt.p - lg.p - fx.p), shareSum: free.reduce((a, s) => a + shareOf(s), 0) || 1 };
   }
   const cand = {}, blocks = {};
+  const fixedDin = dd => { const it = (S.plan[dd] || {}).dinner; return it && live(it) ? rec(it.rid) : null; };
+  /* a lunch with no dinner cooked the evening before (first planned day) gets something that needs no cooking */
+  const ownLunch = d => { const p = addDays(d, -1); return !(days.includes(p) && ctx[p].free.includes('dinner')) && !fixedDin(p); };
   for (const s of slots) {
+    if (LFD && s === 'lunch') {
+      const own = days.filter(d => ctx[d].free.includes('lunch') && ownLunch(d)); if (!own.length) { cand[s] = []; continue; }
+      const c0 = candidates(s, week), q = c0.filter(noCook); cand[s] = q.length >= 3 ? q : c0;
+      if (cand[s].length) blocks[s] = own.map(d => [d]);
+      continue;
+    }
     cand[s] = candidates(s, week);
+    if (LFD && s === 'dinner') { const q = cand[s].filter(r => !spillable(r)); if (q.length >= 6) cand[s] = q; }   // it also goes to school in a box
     if (!cand[s].length) { if (days.some(d => ctx[d].free.includes(s))) warnings.push(`Brak przepisów na: ${SLOT_PL[s].toLowerCase()} – dodaj je w zakładce Jedzenie`); continue; }
     const runs = []; let cur = [];
     for (const d of days) { if (ctx[d].free.includes(s)) cur.push(d); else { if (cur.length) runs.push(cur); cur = []; } }
@@ -403,6 +418,7 @@ function generateRaw(week, opts = {}) {
   for (let i = 0; i < 7; i++) { const it = (S.plan[addDays(week, i)] || {}).dinner, d = addDays(week, i); if (!it || !live(it)) continue; if (days.includes(d) && ctx[d].free.includes('dinner')) continue; fixDin++; const r0 = rec(it.rid); if (r0 && hasMeat(r0)) fixMeat++; }
   const blockList = [];
   for (const s of bslots) for (const bl of blocks[s]) blockList.push({ s, days: bl });
+  const lunchFrom = (pick, d) => { const p = addDays(d, -1); return (pick[p] && pick[p].dinner && pick[p].dinner.r) || fixedDin(p); };
   const evalAssign = assign => {
     const pick = {}, cnt = {}; let sc = 0, mDays = 0, dDays = 0;
     blockList.forEach((bl, k) => {
@@ -417,6 +433,11 @@ function generateRaw(week, opts = {}) {
       sc -= FW * frozenShare(r) * bl.days.length;   // frozen ready-to-cook products save time
       if (bl.s === 'dinner') { dDays += bl.days.length; if (hasMeat(r)) mDays += bl.days.length; sc -= meatPref * (hasMeat(r) ? 1 : 0) * bl.days.length; }   // taste: how often meat/fish for dinner
     });
+    if (LFD) for (const d of days) {
+      const c2 = ctx[d]; if (!c2.free.includes('lunch') || (pick[d] && pick[d].lunch)) continue;
+      const r = lunchFrom(pick, d); if (!r) continue;
+      (pick[d] = pick[d] || {}).lunch = { r, sv: clampServ(c2.kLeft * shareOf('lunch') / c2.shareSum / rm(r).kcal), packed: true };
+    }
     { const tot = dDays + fixDin, want = Math.min(tot, Math.round(tot * meatShare)), have = mDays + fixMeat; if (have < want) sc += (want - have) * 2.5; }   // meat/fish minimum
     for (const k in cnt) { const rid = k.split('|')[1]; sc += (cnt[k] - 1) * W.repeat + (prevUse[rid] || 0) * .15; }
     const need = [Object.assign({}, baseNeed[0]), Object.assign({}, baseNeed[1])], usage = {}, fu = {}; let prevB = null;
@@ -428,7 +449,7 @@ function generateRaw(week, opts = {}) {
         for (const x of p.r.items) { const nt = need[tripOf(di)]; nt[x.ing] = (nt[x.ing] || 0) + x.amt * p.sv; if (!(fu[x.ing] <= di)) fu[x.ing] = di; if (lifeC(x.ing) < 8) { const key = x.ing + '|' + tripOf(di); (usage[key] = usage[key] || new Set()).add(di); } }
       }
       sc += Math.abs(tot.kcal - c2.kLeft) / Math.max(c2.kLeft, 1) * 3 + Math.max(0, c2.pLeft - tot.p) / Math.max(c2.pLeft, 1) * 4;
-      if (pk.lunch && pk.dinner && pk.lunch.r.id === pk.dinner.r.id) sc += .9;
+      if (!LFD && pk.lunch && pk.dinner && pk.lunch.r.id === pk.dinner.r.id) sc += .9;
       if (pk.breakfast && pk.lunch && pk.breakfast.r.id === pk.lunch.r.id) sc += .9;
       if (pk.breakfast && prevB && pk.breakfast.r.id === prevB) sc += .35;
       prevB = pk.breakfast ? pk.breakfast.r.id : null;
@@ -459,7 +480,7 @@ function generateRaw(week, opts = {}) {
   }
   if (best) for (const d of days) {
     const c = ctx[d];
-    for (const s of c.free) { const p = best.pick[d] && best.pick[d][s]; if (p) c.dp[s] = { rid: p.r.id, serv: p.sv }; }
+    for (const s of c.free) { const p = best.pick[d] && best.pick[d][s]; if (p) c.dp[s] = p.packed ? { rid: p.r.id, serv: p.sv, packed: true } : { rid: p.r.id, serv: p.sv }; }
   }
   /* Fine-tune portion sizes so packages get used up: nudge a whole cooking session by a quarter, alone or paired with
      another meal of the same day (one up, one down keeps the calories); keep a change only if the whole week scores better. */
@@ -502,11 +523,16 @@ function refitDay(d) {
 /* Cook sessions: consecutive days with the same lunch/dinner recipe = cook once. Portions = number of meals (whole numbers). */
 function cookSessions(week) {
   const out = [], start = today();
-  for (const s of ['lunch', 'dinner']) {
+  for (const s of ['dinner', 'lunch']) {
     if (!SL().includes(s)) continue;
     let cur = null;
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 8; i++) {
       const d = addDays(week, i), it = (S.plan[d] || {})[s];
+      if (s === 'lunch' && it && it.packed && live(it) && !it.eaten && d >= start) {
+        const x = out.find(o => o.slot === 'dinner' && o.rid === it.rid && (o.days.includes(addDays(d, -1)) || o.days.includes(d)));
+        if (x) { x.items.push(it); x.packed = (x.packed || 0) + 1; cur = null; continue; }
+      }
+      if (i === 7) continue;
       if (it && live(it) && !it.eaten && d >= start) {
         if (cur && cur.rid === it.rid && cur.last === addDays(d, -1)) { cur.days.push(d); cur.last = d; cur.items.push(it); }
         else { cur = { rid: it.rid, slot: s, days: [d], last: d, items: [it] }; out.push(cur); }
@@ -514,7 +540,7 @@ function cookSessions(week) {
     }
   }
   for (const x of out) {
-    x.portions = x.days.length; const r = rec(x.rid), tot = {};
+    x.portions = x.days.length + (x.packed || 0); const r = rec(x.rid), tot = {};
     for (const it of x.items) for (const y of r.items) tot[y.ing] = (tot[y.ing] || 0) + y.amt * it.serv;
     x.totals = Object.entries(tot).map(([id, a]) => ({ i: ing(id), a })).filter(t => t.i);
   }

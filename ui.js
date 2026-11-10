@@ -58,8 +58,8 @@ function viewToday() {
   // prep
   const prep = [];
   for (const dd of [d, addDays(d, 1)]) for (const s of SL()) { const it = (S.plan[dd] || {})[s], r = live(it) && rec(it.rid); if (r && r.prep && !it.eaten && !prep.find(p => p.r === r.id)) prep.push({ r: r.id, txt: r.prep, name: r.name, day: dd === d ? 'dziś' : 'jutro' }); }
-  const thaw = isToday ? thawList(d) : [];
-  if (prep.length || thaw.length) Rt += `<div class="card"><h2>Przygotowanie</h2>${thaw.length ? `<div class="sm" style="margin:4px 0"><b>Wyjmij z zamrażarki na jutro:</b> ${esc(thaw.join(', '))}</div>` : ''}${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
+  const thaw = isToday ? thawList(d) : [], pk = (S.plan[addDays(d, 1)] || {}).lunch, pack = pk && pk.packed && live(pk) && !pk.eaten ? `${rec(pk.rid).name} (${r0(itemMacros(pk).kcal)} kcal)` : '';
+  if (prep.length || thaw.length || pack) Rt += `<div class="card"><h2>Przygotowanie</h2>${pack ? `<div class="sm" style="margin:4px 0"><b>Po obiadokolacji odłóż do pudełka na jutro:</b> ${esc(pack)}</div>` : ''}${thaw.length ? `<div class="sm" style="margin:4px 0"><b>Wyjmij z zamrażarki na jutro:</b> ${esc(thaw.join(', '))}</div>` : ''}${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
   // meals
   L += `<div class="card mealscard"><h2>Posiłki</h2>`;
   if (!SL().some(s => dp[s])) L += `<div class="banner sm" style="margin:0 0 8px"><b>Nie masz jeszcze planu na ten tydzień.</b> Wybierz dania albo pozwól aplikacji ułożyć tydzień – lista zakupów powstanie sama.<div class="row wrap" style="margin-top:10px"><button class="pri sm" data-act="genWeekHere">Wygeneruj tydzień</button><button class="sm" data-act="menuHere">Wybierz dania</button></div></div>`;
@@ -68,7 +68,7 @@ function viewToday() {
     if (live(it)) {
       const r = rec(it.rid), m = itemMacros(it);
       L += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
-        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div></div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? rateRow(d, s, it) : optsHtml(d, s)}`;
+        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${it.packed ? 'z pudełka – porcja z obiadokolacji · ' : ''}${macroLine(m)}</div></div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? rateRow(d, s, it) : optsHtml(d, s)}`;
     } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
   for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
@@ -105,7 +105,7 @@ function weekReviewCard(wk) {
 }
 function planPrefsLine() {
   const p = S.profile, meat = { less: 'rzadziej', normal: 'normalnie', more: 'często' }[p.meatPref || 'normal'], fz = { normal: 'rzadko', some: 'czasem', more: 'często' }[p.frozenPref || 'some'];
-  return `Gotuję raz na ${p.prepDays === 1 ? 'dzień' : p.prepDays + ' dni'} · mięso: ${meat} · mrożonki: ${fz} · zakupy ${(p.shopTrips | 0) >= 2 ? '2×' : '1×'} w tygodniu`;
+  return `Gotuję raz na ${p.prepDays === 1 ? 'dzień' : p.prepDays + ' dni'} · mięso: ${meat} · mrożonki: ${fz} · lunch: ${({ dinner: 'z obiadokolacji', nocook: 'bez gotowania', cook: 'osobne danie' })[p.lunchMode || 'cook']} · zakupy ${(p.shopTrips | 0) >= 2 ? '2×' : '1×'} w tygodniu`;
 }
 function leftoverLine(wk) {
   const l = leftoversFor(wk); if (!l.length) return '';
@@ -130,6 +130,7 @@ function viewPlan() {
       <div><label>Tryb czysty</label><select data-bind="profile.clean"><option value="true" ${S.profile.clean ? 'selected' : ''}>bez przetworzonych</option><option value="false" ${!S.profile.clean ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Śniadanie</label><select data-bind="profile.breakfastQuick"><option value="true" ${S.profile.breakfastQuick !== false ? 'selected' : ''}>shake lub coś szybkiego</option><option value="false" ${S.profile.breakfastQuick === false ? 'selected' : ''}>dowolne</option></select></div>
+      <div><label>Lunch na uczelnię</label><select data-bind="profile.lunchMode">${[['dinner', 'porcja z obiadokolacji z dnia wcześniej'], ['nocook', 'coś bez gotowania'], ['cook', 'osobne danie']].map(([v, l]) => `<option value="${v}" ${(S.profile.lunchMode || 'cook') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Na uczelnię</label><select data-bind="profile.noSpill"><option value="true" ${S.profile.noSpill !== false ? 'selected' : ''}>nic, co może się wylać</option><option value="false" ${S.profile.noSpill === false ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Mrożone produkty (np. frytki, warzywa)</label><select data-bind="profile.frozenPref">${[['normal', 'rzadko – tylko gdy tak wychodzi'], ['some', 'czasem (polecam)'], ['more', 'często – oszczędzam czas']].map(([v, l]) => `<option value="${v}" ${(S.profile.frozenPref || 'some') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Dania</label><select data-bind="profile.mealStyle">${[['mix', 'przepisy i składane z półproduktów'], ['recipes', 'tylko gotowe przepisy'], ['combos', 'tylko składane z półproduktów']].map(([v, l]) => `<option value="${v}" ${(S.profile.mealStyle || 'mix') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -150,7 +151,7 @@ function viewPlan() {
       ${any ? `<div class="xs mut">${r0(dm.kcal)} / ${r0(t.kcal)} kcal · białko ${r0(dm.p)}/${r0(t.p)} g</div>${bar(dm.kcal, t.kcal, 'var(--acc)')}` : '<div class="xs mut">Pusto</div>'}`;
     for (const s of SL()) {
       const it = dp[s], r = live(it);
-      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div><span class="mut" aria-hidden="true">✎</span></div>`;
+      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}${it.packed ? '<span class="tag">z obiadokolacji</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div><span class="mut" aria-hidden="true">✎</span></div>`;
     }
     h += `</div>`;
   }
@@ -163,7 +164,7 @@ function viewPlan() {
     for (const x of ses) {
       const r = rec(x.rid), a = x.days[0], b = x.days[x.days.length - 1], days = a === b ? DAYN[wdIdx(a)] : DAYN[wdIdx(a)] + '–' + DAYN[wdIdx(b)];
       h += `<div class="meal" style="align-items:flex-start" data-act="viewRec" data-id="${r.id}" data-serv="${x.items[0].serv}"><div class="sl">${SLOT_PL[x.slot]}</div><div class="grow"><div class="b">${esc(r.name)}</div>
-        <div class="xs"><b>${x.portions} ${x.portions === 1 ? 'porcja' : x.portions < 5 ? 'porcje' : 'porcji'}</b> na ${days}${r.prep ? ' · ' + esc(r.prep) : ''}</div>
+        <div class="xs"><b>${x.portions} ${x.portions === 1 ? 'porcja' : x.portions < 5 ? 'porcje' : 'porcji'}</b> na ${days}${x.packed ? ` (w tym ${x.packed} do pudełka na uczelnię)` : ''}${r.prep ? ' · ' + esc(r.prep) : ''}</div>
         <div class="mut xs">${x.totals.map(t => `${esc(t.i.name.toLowerCase())} ${fmtAmt(cookQty(t.a, t.i.unit), t.i.unit)}`).join(' · ')}</div></div></div>`;
     }
     h += `</div>`;
