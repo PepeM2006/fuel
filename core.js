@@ -41,7 +41,8 @@ function migrate() {
   if (!S.lastBackup) S.lastBackup = today();
   if ((S.profileVer || 0) < 3) { if (!S.profile.lunchMode) S.profile.lunchMode = 'dinner'; }   // no time to cook a separate school lunch
   if ((S.profileVer || 0) < 2) { if (S.profile.frozenPref === 'more') S.profile.frozenPref = 'some'; S.profileVer = 2; }
-  if ((S.profileVer || 0) < 3) S.profileVer = 3;   // the first 'more' default was too strong
+  if ((S.profileVer || 0) < 3) S.profileVer = 3;
+  if ((S.profileVer || 0) < 4) { S.profile.autoUse = 'tick'; S.profileVer = 4; }   // numbers in Dom change only when you confirm a meal   // the first 'more' default was too strong
   if (S.profileSet === undefined && (S.setupDone || S.rev > 0)) S.profileSet = true;   // existing users are not asked again
   S.recipes.forEach(r => { r.tags = r.tags || []; r.how = r.how || ''; r.prep = r.prep || ''; });
   S.ingredients.forEach(i => { if (i.proc == null) i.proc = 0; if (i.nl == null) i.nl = ''; });
@@ -545,7 +546,7 @@ function generateRaw(week, opts = {}) {
    The first day the stock can no longer feed you (under 75% of the day's calories) is the shopping day: only the days
    from then on get a normal plan, so the shopping list holds only what those days need. */
 function planFromHome(week) {
-  const t = today(), start = week > t ? week : t, end = addDays(week, 6); if (start > end) return { days: 0 };
+  const t = today(), start = week > t ? week : t, end = addDays(start, 13);   // not limited to one week: as many days as the food at home lasts (max 14)
   const slots = SL(), N = Math.max(1, S.profile.prepDays | 0), LFD = S.profile.lunchMode === 'dinner' && slots.includes('lunch');
   const prevOvr = STOCK_AT; STOCK_AT = stockFor(week);
   const left = {}; for (const i of S.ingredients) { const q = stockQ(i); if (q > .01) left[i.id] = q; }
@@ -621,15 +622,22 @@ function planFromHome(week) {
   }
   STOCK_AT = prevOvr;
   S.shopDay = S.shopDay || {};
-  if (shopDay) { S.shopDay[week] = shopDay; generate(week, { keep: true, from: shopDay }); }
-  else delete S.shopDay[week];
-  const fmt = d => DAYN[wdIdx(d)];
+  for (let w = weekStart(start); w <= weekStart(end); w = addDays(w, 7)) delete S.shopDay[w];
+  if (shopDay && homeDays) { for (let w = weekStart(start); w <= weekStart(shopDay); w = addDays(w, 7)) S.shopDay[w] = shopDay; generate(weekStart(shopDay), { keep: true, from: shopDay }); }
+  const fmt = d => `${DAYN[wdIdx(d)]} ${parseD(d).getDate()}.${pad(parseD(d).getMonth() + 1)}`;
   const msg = !homeDays ? 'Z tego, co masz w domu, nie da się ułożyć nawet jednego dnia – plan normalny z zakupami'
-    : shopDay ? `Z tego, co masz: ${homeDays} ${homeDays === 1 ? 'dzień' : 'dni'} (${fmt(written[0])}–${fmt(written[written.length - 1])}). Zakupy: ${DAYFULL[wdIdx(shopDay)].toLowerCase()} – lista ma tylko to, czego brakuje na dalsze dni`
-    : `Cały tydzień ułożony z tego, co masz w domu – nic nie musisz kupować`;
+    : shopDay ? `Z tego, co masz, bez zakupów: ${homeDays} ${homeDays === 1 ? 'dzień' : 'dni'} (${fmt(written[0])} – ${fmt(written[written.length - 1])}). Zakupy: ${fmt(shopDay)}`
+    : `Na ${homeDays} dni masz wszystko w domu – nic nie musisz kupować`;
   return { days: homeDays, shopDay, msg, why };
 }
 /* the main "plan the week" button: home first (when there is something at home), otherwise the normal planner */
+/* meals whose time has passed but you have not confirmed yet (today and yesterday) */
+function toConfirm() {
+  const t = today(), out = [];
+  for (const d of [addDays(t, -1), t]) { if (d < (S.stockSince || t)) continue; const dp = S.plan[d] || {};
+    for (const s of SL()) { const it = dp[s]; if (live(it) && !it.eaten && !it.auto && mealDue(d, s)) out.push({ d, s, it }); } }
+  return out;
+}
 function genSmart(week) {
   if (S.profile.homeFirst !== false && pantryItems().length >= 3) { const h = planFromHome(week); if (h.days > 0) return h.msg; }
   if (S.shopDay) delete S.shopDay[week];
@@ -640,7 +648,7 @@ function refitDay(d) {
   const need = targets(d).kcal - consumed(d).kcal, cur = plannedLeft(d).kcal;
   if (cur <= 0) return;
   const f = need > 0 ? need / cur : .5;
-  for (const s of SL()) if (dp[s] && !dp[s].eaten && !dp[s].skipped) dp[s].serv = clampServ(dp[s].serv * f);
+  for (const s of SL()) if (dp[s] && !dp[s].eaten && !dp[s].skipped && !dp[s].auto) dp[s].serv = clampServ(dp[s].serv * f);
 }
 /* Cook sessions: consecutive days with the same lunch/dinner recipe = cook once. Portions = number of meals (whole numbers). */
 function cookSessions(week) {
@@ -719,7 +727,8 @@ function shopListRaw(week, trip = null) {
     const tr = nT === 2 ? tripOf(i) : 0, dp = S.plan[d] || {};
     for (const s of SL()) {
       const it = dp[s]; if (!it || it.eaten || it.auto || it.skipped) continue; const r = rec(it.rid); if (!r) continue;
-      for (const x of itItems(it)) { need[tr][x.ing] = (need[tr][x.ing] || 0) + x.amt * it.serv; (uses[x.ing + '|' + tr] = uses[x.ing + '|' + tr] || []).push(i); }
+      for (const x of itItems(it)) { if (it.home && COMBO_STAPLES.has(x.ing)) continue;   // oil, onion, garlic: assumed at home on the use-what-you-have days
+        need[tr][x.ing] = (need[tr][x.ing] || 0) + x.amt * it.serv; (uses[x.ing + '|' + tr] = uses[x.ing + '|' + tr] || []).push(i); }
     }
   }
   const left = {}; S.ingredients.forEach(i => left[i.id] = stockQ(i));

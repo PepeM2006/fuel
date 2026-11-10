@@ -39,6 +39,8 @@ function viewToday() {
     tips[4] = `<div class="banner sm"><b>${hasNext ? 'Przyszły tydzień jest zaplanowany.' : 'Czas zaplanować przyszły tydzień.'}</b> ${hasNext ? 'Sprawdź listę zakupów i idź na zakupy.' : 'Ułóż menu i listę zakupów z wyprzedzeniem – zakupy zrobisz już dziś.'}<div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="planNext">${hasNext ? 'Zobacz plan' : 'Zaplanuj przyszły tydzień'}</button><button class="sm" data-act="shopNext">Lista zakupów</button></div></div>`;
   }
   if (isToday) tips[2] = stockCheckBanner();
+  const tc = isToday && UI.hideConfirm !== today() ? toConfirm() : [];
+  if (tc.length) tips[0] = `<div class="banner sm"><b>Zjadłeś to?</b> ${esc(tc.map(x => `${x.d === today() ? '' : 'wczoraj '}${SLOT_PL[x.s].toLowerCase()}: ${rec(x.it.rid).name}`).join(' · '))}<div class="mut xs" style="margin-top:4px">Dopiero po potwierdzeniu odejmę to z domu.</div><div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="confirmAll">Tak, wszystko</button><button class="sm" data-act="confirmLater">Nie wszystko – odhaczę sam</button></div></div>`;
   const spl = isToday ? spoiledItems() : [];
   if (spl.length) tips[1] = `<div class="banner sm">Sprawdź w lodówce, czy jeszcze dobre: ${esc(spl.slice(0, 4).map(i => i.name.toLowerCase()).join(', '))}${spl.length > 4 ? '…' : ''} <button class="sm" data-act="ftabFridge" style="margin-left:6px">Sprawdź</button></div>`;
   h += top + (tips.find(Boolean) || '');
@@ -138,7 +140,8 @@ function planPrefsLine() {
 const skipNote = it => it && it.skip && it.skip.length ? `<div class="xs" style="color:var(--clay)">bez: ${esc(it.skip.map(id => (ing(id) || {}).name || id).join(', ').toLowerCase())} (nie masz w domu)</div>` : '';
 function shopDayLine(wk) {
   const sd = S.shopDay && S.shopDay[wk]; if (!sd || sd < today()) return '';
-  return `<div class="banner sm" style="margin-top:8px">Najpierw jesz z tego, co masz w domu (do ${esc(DAYN[(wdIdx(sd) + 6) % 7])} włącznie). <b>Zakupy: ${esc(DAYFULL[wdIdx(sd)].toLowerCase())}</b>.</div>`;
+  const lf = sd > today() ? Object.entries(projectStock(sd)).map(([id, q]) => ({ i: ing(id), q })).filter(x => x.i && x.q > .01).sort((a, b) => b.q * unitCost(b.i) - a.q * unitCost(a.i)) : [];
+  return `<div class="banner sm" style="margin-top:8px">Najpierw jesz tylko to, co masz w domu – do ${esc(fmtDay(addDays(sd, -1)))} włącznie. <b>Zakupy: ${esc(fmtDay(sd))}</b>.${lf.length ? `<div class="xs" style="margin-top:4px">Po tych dniach zostanie: ${esc(lf.slice(0, 5).map(x => `${x.i.name.replace(/ \(.*\)/, '').toLowerCase()} ${fmtAmt(niceQty(x.q, x.i.unit), x.i.unit)}`).join(', '))}${lf.length > 5 ? '…' : ''} – wejdzie do planu po zakupach.</div>` : ''}</div>`;
 }
 function leftoverLine(wk) {
   const l = leftoversFor(wk); if (!l.length) return '';
@@ -164,7 +167,7 @@ function viewPlan() {
       <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Śniadanie</label><select data-bind="profile.breakfastQuick"><option value="true" ${S.profile.breakfastQuick !== false ? 'selected' : ''}>shake lub coś szybkiego</option><option value="false" ${S.profile.breakfastQuick === false ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Najpierw zużyj, co mam w domu</label><select data-bind="profile.homeFirst"><option value="true" ${S.profile.homeFirst !== false ? 'selected' : ''}>tak – zakupy dopiero, gdy się skończy</option><option value="false" ${S.profile.homeFirst === false ? 'selected' : ''}>nie – zwykły plan</option></select></div>
-      <div><label>Odejmowanie z domu</label><select data-bind="profile.autoUse"><option value="auto" ${S.profile.autoUse !== 'tick' ? 'selected' : ''}>samo, po porze posiłku</option><option value="tick" ${S.profile.autoUse === 'tick' ? 'selected' : ''}>tylko gdy odhaczę posiłek</option></select></div>
+      <div><label>Odejmowanie z domu</label><select data-bind="profile.autoUse"><option value="tick" ${S.profile.autoUse !== 'auto' ? 'selected' : ''}>gdy potwierdzę posiłek (polecam)</option><option value="auto" ${S.profile.autoUse === 'auto' ? 'selected' : ''}>samo, po porze posiłku</option></select></div>
       <div><label>Lunch na uczelnię</label><select data-bind="profile.lunchMode">${[['dinner', 'porcja z obiadokolacji z dnia wcześniej'], ['nocook', 'coś bez gotowania'], ['cook', 'osobne danie']].map(([v, l]) => `<option value="${v}" ${(S.profile.lunchMode || 'cook') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Na uczelnię</label><select data-bind="profile.noSpill"><option value="true" ${S.profile.noSpill !== false ? 'selected' : ''}>nic, co może się wylać</option><option value="false" ${S.profile.noSpill === false ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Mrożone produkty (np. frytki, warzywa)</label><select data-bind="profile.frozenPref">${[['normal', 'rzadko – tylko gdy tak wychodzi'], ['some', 'czasem (polecam)'], ['more', 'często – oszczędzam czas']].map(([v, l]) => `<option value="${v}" ${(S.profile.frozenPref || 'some') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -234,7 +237,7 @@ function viewShop() {
   if (!all.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
   const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id + '|' + r.trip]).length;
   h += saveBar();
-  if (S.shopDay && S.shopDay[wk] && S.shopDay[wk] >= today()) h += `<div class="banner sm" style="margin-bottom:10px"><b>Zakupy: ${esc(DAYFULL[wdIdx(S.shopDay[wk])].toLowerCase())}.</b> Do tego czasu jesz z tego, co masz w domu – ta lista to tylko to, czego zabraknie na dalsze dni.</div>`;
+  if (S.shopDay && S.shopDay[wk] && S.shopDay[wk] >= today()) h += `<div class="banner sm" style="margin-bottom:10px"><b>Zakupy: ${esc(fmtDay(S.shopDay[wk]))}.</b> Do tego czasu jesz tylko to, co masz w domu.${weekStart(S.shopDay[wk]) > wk ? ' Lista na zakupy jest w tygodniu, w którym je robisz (strzałka ›).' : ' Ta lista to tylko to, czego zabraknie na dni po zakupach.'}</div>`;
   h += `<div class="row wrap" style="margin-bottom:8px"><span class="pill">${buy.length} pozycji · ~${money(total)}</span>${covered.length ? `<span class="pill soft">${covered.length} masz w domu</span>` : ''}<select data-bind="profile.store" style="width:auto">${STORES.map(s => `<option ${S.profile.store === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
     <div class="row wrap"><button class="pri" data-act="toReminders">Do Przypomnień</button><button data-act="copyList">Kopiuj / udostępnij</button></div>
     <div class="row wrap" style="margin-top:8px"><button class="sm" data-act="checkAll">Kupiłem wszystko</button><button class="sm" data-act="ftabFridge">Co mam w domu</button></div>
@@ -261,7 +264,7 @@ function viewFridge() {
   let h = `<div class="card"><div class="row sp"><h2 style="margin:0">Co mam w domu</h2><button class="pri sm" data-act="fridgeAdd">+ Dodaj</button></div>`;
   h += items.length ? items.map(i => { const dl = daysLeft(i); return `<div class="meal" data-act="fridgeEdit" data-id="${i.id}"><div class="grow"><div class="b">${esc(i.name)}</div><div class="mut xs">${i.pantryExp ? `ważne do ${esc(fmtDay(i.pantryExp))}${dl != null && dl <= 2 ? ' – <b style="color:var(--clay)">zużyj szybko</b>' : ''}` : 'bez daty ważności'}${i.pantryNext ? ` · nowe ${fmtAmt(i.pantryNext.q, i.unit)} do ${esc(fmtDay(i.pantryNext.exp))}` : ''}</div></div><div class="b">${fmtAmt(i.pantry, i.unit)}</div></div>`; }).join('')
     : `<div class="mut sm" style="margin-top:10px">Dodaj to, co masz w lodówce i szafkach. Planer zużyje to najpierw, lista zakupów pokaże te produkty jako odhaczone, a poniżej dostaniesz pomysły, co z tego zrobić.</div>`;
-  h += `<div class="mut xs" style="margin-top:10px">Stan liczy się sam: zakupy dodają całe opakowania, a po każdym posiłku odejmuje się to, co poszło do dania. Zmienisz albo usuniesz posiłek – jedzenie wraca. Nic nie znika samo z powodu daty. Popraw ilość, jeśli się nie zgadza.</div></div>`;
+  h += `<div class="mut xs" style="margin-top:10px">Stan zmienia się tylko, gdy: odhaczysz zakupy (dodaje całe opakowania), potwierdzisz zjedzony posiłek (odejmuje to, co poszło do dania) albo poprawisz ręcznie. Każda zmiana jest w „Ostatnie zmiany” niżej. Zmienisz albo usuniesz posiłek – jedzenie wraca. Nic nie znika samo z powodu daty. Popraw ilość, jeśli się nie zgadza.</div></div>`;
   const sp = spoiledItems();
   if (sp.length) h += `<div class="card"><h2>Sprawdź, czy jeszcze dobre</h2><div class="mut xs" style="margin:-4px 0 6px">Minął (szacowany) termin. Nic nie znika samo – zdecyduj.</div>${sp.map(i => `<div class="row sp sm" style="padding:6px 0;border-top:1px solid var(--line);gap:8px"><span class="grow">${esc(i.name)} <span class="mut xs">${fmtAmt(i.pantry, i.unit)} · do ${esc(fmtDay(i.pantryExp))}</span></span><button class="sm" data-act="spoilOk" data-id="${i.id}">Jeszcze dobre</button><button class="sm danger" data-act="spoilOut" data-id="${i.id}">Wyrzuciłem</button></div>`).join('')}</div>`;
   const fl = weekFlow();
@@ -880,6 +883,8 @@ const ACTIONS = {
   week: ds => { UI.week = addDays(UI.week, 7 * +ds.n); render(); },
   toggleTrain: () => { const d = UI.date, w = S.workouts[d]; S.workouts[d] = { ...(w || {}), done: !isTrain(d), manual: true }; save(); render(); toast(isTrain(d) ? 'Dzień treningowy – cel podniesiony' : 'Dzień wolny – cel obniżony'); },
   eat: (ds, el) => { setEaten(ds.d, ds.s, el.checked); const it = S.plan[ds.d][ds.s]; if (it && it.eaten && !it.learnedEat) { learn(it.rid, 1, 'ate'); it.learnedEat = true; } save(); render(); },
+  confirmAll: () => withUndo(() => { const tc = toConfirm(); tc.forEach(x => { setEaten(x.d, x.s, true); if (!x.it.learnedEat) { learn(x.it.rid, 1, 'ate'); x.it.learnedEat = true; } }); return `Zapisane (${tc.length}) – odjęte z domu`; }),
+  confirmLater: () => { UI.hideConfirm = today(); render(); },
   eatNow: ds => withUndo(() => { setEaten(ds.d, ds.s, true); const it = S.plan[ds.d][ds.s]; if (it && !it.learnedEat) { learn(it.rid, 1, 'ate'); it.learnedEat = true; } return 'Zapisane – składniki odjęte z domu'; }),
   viewMeal: ds => { const it = (S.plan[ds.d] || {})[ds.s]; if (live(it)) viewRec(it.rid, it.serv, { d: ds.d, s: ds.s }); },
   viewRec: ds => viewRec(ds.id, +ds.serv || 1),
