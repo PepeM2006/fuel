@@ -127,3 +127,5 @@ button,a,label,input,select,summary{touch-action:manipulation}
 .pick-i{padding:10px 12px;border-top:1px solid var(--line);font-size:14.5px;cursor:pointer}
 .pick-i:first-child{border-top:0}
 .pick-i[data-pi]:hover{background:var(--acc2)}
+
+.card.now{border-color:var(--acc);border-width:1.5px}

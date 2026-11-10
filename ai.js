@@ -93,7 +93,7 @@ const AI_RUN = {
   },
   get_fridge: () => pantryItems().map(i => ({ item: i.name, amount: fmtAmt(i.pantry, i.unit), expires: i.pantryExp || null })),
   suggest_from_fridge: () => pantryIdeas(6).map(x => ({ recipe: x.r.name, slots: x.r.slots, covered_percent: r0(x.cover * 100), missing: x.missing })),
-  add_to_pantry: a => { const i = findIng(a.ingredient); if (!i) return fail('Nie ma składnika'); i.pantry = (i.pantry || 0) + a.amount; if (a.expires) i.pantryExp = a.expires; return ok({ pantry: i.pantry }); },
+  add_to_pantry: a => { const i = findIng(a.ingredient); if (!i) return fail('Nie ma składnika'); rollBatch(i); i.pantry = (i.pantry || 0) + a.amount; stockLogAdd({ id: i.id, q: a.amount, why: 'dodane ręcznie' }); if (a.expires) i.pantryExp = a.expires; return ok({ pantry: i.pantry }); },
   log_food: a => { const d = a.date || today(); (S.log[d] = S.log[d] || []).push({ id: uid(), name: a.name, slot: a.slot || 'extra', kcal: a.kcal, p: a.protein || 0, c: a.carbs || 0, f: a.fat || 0 }); return ok(); },
   log_cheat_meal: a => { const r = applyCheat(a.date || today(), { name: a.name, kcal: a.kcal, replaces: a.replaces_slot || null }); return ok({ surplus_kcal: r0(r.surplus), absorbed_kcal: r0(r.absorbed), over_days: r.n }); },
   set_training: a => { if (!a.trained) { S.workouts[a.date] = { done: false, manual: true }; return ok(); } logWorkout(a.date, { name: a.name || 'Trening', sets: a.sets, min: a.minutes }); return ok(); },

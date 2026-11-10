@@ -6,9 +6,10 @@ const IC = {
   shop: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>',
   foods: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10Z"/><path d="M2 21c0-3 1.9-5.3 5-6.4"/>',
   ai: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.7 1.8 1.8.7-1.8.7L19 22l-.7-1.8-1.8-.7 1.8-.7z"/>',
+  home: '<path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/>',
   me: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
 };
-const NAV = [['today', 'Dziś'], ['plan', 'Plan'], ['shop', 'Zakupy'], ['foods', 'Jedzenie'], ['ai', 'Asystent'], ['me', 'Ja']];
+const NAV = [['today', 'Dziś'], ['plan', 'Plan'], ['shop', 'Zakupy'], ['home', 'Dom'], ['me', 'Ja']];
 const svg = k => `<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${IC[k]}</svg>`;
 const bar = (v, max, col) => `<div class="bar"><div style="width:${Math.min(100, max ? v / max * 100 : 0)}%;background:${col}"></div></div>`;
 const macroLine = m => `${r0(m.kcal)} kcal · B${r0(m.p)} W${r0(m.c)} T${r0(m.f)}`;
@@ -24,21 +25,26 @@ function viewToday() {
   const remain = t.kcal - c.kcal, pct = Math.max(0, Math.min(1, c.kcal / t.kcal));
   const train = isTrain(d), wk = S.workouts[d], isToday = d === today();
   let h = '';
-  if (S.starter && !S.welcomeSeen) h += `<div class="banner"><b>Witaj.</b> Masz już ponad 140 przepisów bez cukru i mało przetworzonych oraz typowe holenderskie produkty. Sprawdź makro i ceny w <b>Jedzenie</b> (to wartości przybliżone). <div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="nav" data-v="plan">Zaplanuj tydzień →</button><button class="sm" data-act="welcomeOk">Rozumiem</button><button class="sm ghost" data-act="clearStarter">Usuń wszystkie startowe</button></div></div>`;
+  const tips = [];
+  if (S.starter && !S.welcomeSeen) tips[6] = `<div class="banner"><b>Witaj.</b> Masz już ponad 140 przepisów bez cukru i mało przetworzonych oraz typowe holenderskie produkty. Sprawdź makro i ceny w <b>Jedzenie</b> (to wartości przybliżone). <div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="nav" data-v="plan">Zaplanuj tydzień →</button><button class="sm" data-act="welcomeOk">Rozumiem</button><button class="sm ghost" data-act="clearStarter">Usuń wszystkie startowe</button></div></div>`;
   const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent), isMobile = /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
   const bdays = UI.local ? Math.floor((parseD(today()) - parseD(S.lastBackup || today())) / 864e5) : 0;
   let hide = ''; try { hide = localStorage.getItem('fuel-hide-install') || ''; } catch (e) { }
-  if (UI.local && isMobile && !standalone && !hide && !S.starter && bdays < 7) h += `<div class="banner sm"><b>Zrób z tego aplikację.</b> ${isIOS ? 'W Safari dotknij „Udostępnij" → „Do ekranu początkowego".' : UI.installEvt ? 'Dodaj Fuel do ekranu głównego, żeby działał jak zwykła aplikacja, także offline.' : 'W menu przeglądarki (⋮) wybierz „Zainstaluj aplikację" lub „Dodaj do ekranu głównego".'}<div class="row wrap" style="margin-top:8px">${UI.installEvt ? '<button class="pri sm" data-act="installApp">Zainstaluj</button>' : ''}<button class="sm" data-act="hideInstall">Nie teraz</button></div></div>`;
-  if (UI.local && bdays >= 7 && !S.starter) h += `<div class="warnbox">Ostatnia kopia zapasowa: ${bdays} dni temu. Dane są tylko na tym telefonie – <button class="sm" data-act="export">Pobierz kopię</button></div>`;
-  h += `<div class="top"><div><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isToday ? 'Dziś' : esc(DAYFULL[wdIdx(d)])}</h1></div><div class="row"><button class="icon" aria-label="Poprzedni dzień" data-act="day" data-n="-1">‹</button>${isToday ? '' : '<button class="sm" data-act="dayToday">Dziś</button>'}<button class="icon" aria-label="Następny dzień" data-act="day" data-n="1">›</button></div></div>`;
+  if (UI.local && isMobile && !standalone && !hide && !S.starter && bdays < 7) tips[5] = `<div class="banner sm"><b>Zrób z tego aplikację.</b> ${isIOS ? 'W Safari dotknij „Udostępnij" → „Do ekranu początkowego".' : UI.installEvt ? 'Dodaj Fuel do ekranu głównego, żeby działał jak zwykła aplikacja, także offline.' : 'W menu przeglądarki (⋮) wybierz „Zainstaluj aplikację" lub „Dodaj do ekranu głównego".'}<div class="row wrap" style="margin-top:8px">${UI.installEvt ? '<button class="pri sm" data-act="installApp">Zainstaluj</button>' : ''}<button class="sm" data-act="hideInstall">Nie teraz</button></div></div>`;
+  if (UI.local && bdays >= 7 && !S.starter) tips[3] = `<div class="warnbox">Ostatnia kopia zapasowa: ${bdays} dni temu. Dane są tylko na tym telefonie – <button class="sm" data-act="export">Pobierz kopię</button></div>`;
+  const top = `<div class="top"><div><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isToday ? 'Dziś' : esc(DAYFULL[wdIdx(d)])}</h1></div><div class="row"><button class="icon" aria-label="Poprzedni dzień" data-act="day" data-n="-1">‹</button>${isToday ? '' : '<button class="sm" data-act="dayToday">Dziś</button>'}<button class="icon" aria-label="Następny dzień" data-act="day" data-n="1">›</button></div></div>`;
   if (isToday && wdIdx(d) >= 4) {   // Friday–Sunday: plan and shop for the coming week
     const nxt = addDays(weekStart(today()), 7), hasNext = Array.from({ length: 7 }, (_, k) => (S.plan[addDays(nxt, k)] || {})).some(dp => SL().some(s => dp[s]));
-    h += `<div class="banner sm"><b>${hasNext ? 'Przyszły tydzień jest zaplanowany.' : 'Czas zaplanować przyszły tydzień.'}</b> ${hasNext ? 'Sprawdź listę zakupów i idź na zakupy.' : 'Ułóż menu i listę zakupów z wyprzedzeniem – zakupy zrobisz już dziś.'}<div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="planNext">${hasNext ? 'Zobacz plan' : 'Zaplanuj przyszły tydzień'}</button><button class="sm" data-act="shopNext">Lista zakupów</button></div></div>`;
+    tips[4] = `<div class="banner sm"><b>${hasNext ? 'Przyszły tydzień jest zaplanowany.' : 'Czas zaplanować przyszły tydzień.'}</b> ${hasNext ? 'Sprawdź listę zakupów i idź na zakupy.' : 'Ułóż menu i listę zakupów z wyprzedzeniem – zakupy zrobisz już dziś.'}<div class="row wrap" style="margin-top:8px"><button class="pri sm" data-act="planNext">${hasNext ? 'Zobacz plan' : 'Zaplanuj przyszły tydzień'}</button><button class="sm" data-act="shopNext">Lista zakupów</button></div></div>`;
   }
-  if (isToday) h += stockCheckBanner();
+  if (isToday) tips[2] = stockCheckBanner();
+  const spl = isToday ? spoiledItems() : [];
+  if (spl.length) tips[1] = `<div class="banner sm">Sprawdź w lodówce, czy jeszcze dobre: ${esc(spl.slice(0, 4).map(i => i.name.toLowerCase()).join(', '))}${spl.length > 4 ? '…' : ''} <button class="sm" data-act="ftabFridge" style="margin-left:6px">Sprawdź</button></div>`;
+  h += top + (tips.find(Boolean) || '');
   const fmt = n => r0(n).toLocaleString('pl-PL'), over = remain < -150;
   let L = '', Rt = '';
+  if (isToday) L += nowCard(d);
   L += `<div class="card main"><div class="row sp" style="align-items:flex-end;gap:12px"><div><div class="num ${over ? 'over' : ''}">${fmt(Math.abs(remain))}</div><div class="lab">${remain >= 0 ? 'kcal do celu na dziś' : 'kcal ponad cel'}</div></div><button class="${train ? 'on' : ''}" data-act="toggleTrain">${train ? 'Dzień treningowy' : 'Dzień wolny'}</button></div>
     <div class="track"><div class="${over ? 'over' : ''}" style="width:${pct * 100}%"></div></div>
     <div class="row sp xs mut"><span>zjedzone ${fmt(c.kcal)}</span><span>cel ${fmt(t.kcal)}${S.adjust[d] ? ` (${r0(S.adjust[d])} po cheat meal)` : ''}${left.kcal ? ` · w planie ${fmt(left.kcal)}` : ''}</span></div>
@@ -58,7 +64,7 @@ function viewToday() {
   // prep
   const prep = [];
   for (const dd of [d, addDays(d, 1)]) for (const s of SL()) { const it = (S.plan[dd] || {})[s], r = live(it) && rec(it.rid); if (r && r.prep && !it.eaten && !prep.find(p => p.r === r.id)) prep.push({ r: r.id, txt: r.prep, name: r.name, day: dd === d ? 'dziś' : 'jutro' }); }
-  const thaw = isToday ? thawList(d) : [], pk = (S.plan[addDays(d, 1)] || {}).lunch, pack = pk && pk.packed && live(pk) && !pk.eaten ? `${rec(pk.rid).name} (${r0(itemMacros(pk).kcal)} kcal)` : '';
+  const thaw = isToday && new Date().getHours() < 16 ? thawList(d) : [], pk = (S.plan[addDays(d, 1)] || {}).lunch, pack = !(isToday && new Date().getHours() >= 16) && pk && pk.packed && live(pk) && !pk.eaten ? `${rec(pk.rid).name} (${r0(itemMacros(pk).kcal)} kcal)` : '';
   if (prep.length || thaw.length || pack) Rt += `<div class="card"><h2>Przygotowanie</h2>${pack ? `<div class="sm" style="margin:4px 0"><b>Po obiadokolacji odłóż do pudełka na jutro:</b> ${esc(pack)}</div>` : ''}${thaw.length ? `<div class="sm" style="margin:4px 0"><b>Wyjmij z zamrażarki na jutro:</b> ${esc(thaw.join(', '))}</div>` : ''}${prep.map(p => `<div class="sm" style="margin:4px 0"><b>${esc(p.txt)}</b> <span class="mut">– ${esc(p.name)} (${p.day})</span></div>`).join('')}</div>`;
   // meals
   L += `<div class="card mealscard"><h2>Posiłki</h2>`;
@@ -68,7 +74,7 @@ function viewToday() {
     if (live(it)) {
       const r = rec(it.rid), m = itemMacros(it);
       L += `<div class="meal ${it.eaten ? 'done' : ''}"><input type="checkbox" ${it.eaten ? 'checked' : ''} data-act="eat" data-d="${d}" data-s="${s}"><div class="sl">${SLOT_PL[s]}</div>
-        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${it.packed ? 'z pudełka – porcja z obiadokolacji · ' : ''}${macroLine(m)}</div></div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? rateRow(d, s, it) : optsHtml(d, s)}`;
+        <div class="grow nm" data-act="viewMeal" data-d="${d}" data-s="${s}"><div class="b">${esc(r.name)}</div><div class="mut xs">${it.packed ? 'z pudełka – porcja z obiadokolacji · ' : ''}${macroLine(m)}</div>${skipNote(it)}</div>${it.eaten ? '' : `<button class="ghost sm" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button>`}</div>${it.eaten ? rateRow(d, s, it) : optsHtml(d, s)}`;
     } else L += `<div class="meal"><span style="width:20px"></span><div class="sl">${SLOT_PL[s]}</div><div class="grow mut sm">${it && it.skipped ? 'pominięte (cheat meal)' : 'brak w planie'}</div><button class="sm" data-act="editSlot" data-d="${d}" data-s="${s}">Wybierz</button></div>${it && it.skipped ? '' : optsHtml(d, s)}`;
   }
   for (const e of S.log[d] || []) L += `<div class="meal"><span style="width:20px"></span><div class="sl">${e.cheat ? 'Cheat' : 'Extra'}</div><div class="grow"><div class="b">${esc(e.name)}</div><div class="mut xs">${macroLine(e)}</div></div><button class="ghost danger" data-act="delLog" data-d="${d}" data-id="${e.id}">✕</button></div>`;
@@ -76,6 +82,28 @@ function viewToday() {
   return h + `<div class="today2"><div class="tl">${L}</div><div class="tr">${Rt}</div></div>`;
 }
 
+/* the one thing to do now: next meal with exact amounts (or how much to cook), and the evening jobs */
+function nowCard(d) {
+  const dp = S.plan[d] || {}, hr = new Date().getHours();
+  const open = SL().filter(s => live(dp[s]) && !dp[s].eaten);
+  const s = open.find(s => hr < (SLOT_DONE_H[s] || 24)) || open[open.length - 1];
+  const pk = (S.plan[addDays(d, 1)] || {}).lunch, pack = hr >= 16 && pk && pk.packed && live(pk) && !pk.eaten ? pk : null, thaw = hr >= 16 ? thawList(d) : [];
+  if (!s && !pack && !thaw.length) return '';
+  let x = '<div class="card now">';
+  if (s) {
+    const it = dp[s], r = rec(it.rid), m = itemMacros(it), amt = (y, k) => { const i = ing(y.ing); return i ? `${esc(i.name.replace(/ \(.*\)/, '').toLowerCase())} <b>${fmtAmt(cookQty(y.amt * k, i.unit), i.unit)}</b>` : ''; };
+    const ses = s === 'dinner' || s === 'lunch' ? cookSessions(weekStart(d)).find(z => z.rid === it.rid && z.items.includes(it)) : null;
+    let how;
+    if (it.packed) how = '<div class="sm" style="margin-top:8px">Z pudełka – porcja z wczorajszej obiadokolacji.</div>';
+    else if (ses && ses.portions > 1 && ses.days[0] === d) how = `<div class="sm" style="margin-top:8px"><b>Ugotuj ${ses.portions} ${ses.portions < 5 ? 'porcje' : 'porcji'}</b>${ses.packed ? ` (w tym ${ses.packed} do pudełka)` : ''}: ${ses.totals.map(t => `${esc(t.i.name.replace(/ \(.*\)/, '').toLowerCase())} <b>${fmtAmt(cookQty(t.a, t.i.unit), t.i.unit)}</b>`).join(' · ')}</div>`;
+    else if (ses && ses.days[0] < d) how = `<div class="sm" style="margin-top:8px">Odgrzej porcję ugotowaną w ${esc(DAYN[wdIdx(ses.days[0])])}.</div>`;
+    else how = `<div class="sm" style="margin-top:8px">${itItems(it).map(y => amt(y, it.serv)).filter(Boolean).join(' · ')}</div>`;
+    x += `<div class="eyebrow">Teraz · ${SLOT_PL[s]}</div><div class="b" style="font-size:18px;margin:2px 0 2px">${esc(r.name)}</div><div class="mut xs">${macroLine(m)}</div>${skipNote(it)}${how}
+      <div class="row wrap" style="margin-top:12px"><button class="pri" data-act="eatNow" data-d="${d}" data-s="${s}">Zjadłem</button><button data-act="viewMeal" data-d="${d}" data-s="${s}">Przepis</button><button class="ghost" data-act="editSlot" data-d="${d}" data-s="${s}">Zmień</button></div>`;
+  }
+  if (pack || thaw.length) x += `<div class="sm" style="${s ? 'margin-top:12px;padding-top:10px;border-top:1px solid var(--line)' : ''}">${pack ? `<div style="margin:2px 0"><b>Na jutro do pudełka:</b> ${esc(rec(pack.rid).name)} (${r0(itemMacros(pack).kcal)} kcal)</div>` : ''}${thaw.length ? `<div style="margin:2px 0"><b>Wyjmij z zamrażarki na jutro:</b> ${esc(thaw.join(', '))}</div>` : ''}</div>`;
+  return x + '</div>';
+}
 function saveBar() {   // nothing to press: everything is remembered automatically
   const t = UI.savedAt || S.savedAt, when = t ? new Date(t).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '';
   return `<div class="savebar"><div class="xs mut">✓ Pamiętam wszystko, co ustawiłeś – zapisuje się samo${UI.local ? ' na tym telefonie' : ' na komputerze'}${when ? ' (' + when + ')' : ''}. Pomyłkę cofniesz przyciskiem „Cofnij".</div></div>`;
@@ -93,7 +121,7 @@ function stockCheckDialog() {
   const items = stockCheckItems(); if (!items.length) return toast('Nie masz nic zapisanego w domu');
   modal('Kontrola domu', `<p class="sm" style="margin-top:0">Tyle według mnie zostało. Popraw tylko to, co się nie zgadza.</p>${items.map(i => `<div class="row sp" style="padding:6px 0;border-top:1px solid var(--line);gap:10px"><span class="grow sm">${esc(i.name)}</span><input data-sc="${i.id}" inputmode="decimal" style="width:90px" value="${r0(i.pantry)}"><span class="mut xs" style="width:26px">${i.unit}</span></div>`).join('')}`,
     [{ label: 'Wszystko się zgadza', fn: () => { S.stockCheckedAt = today(); save(); closeModal(); render(); toast('Dzięki, stan potwierdzony'); } },
-    { label: 'Zapisz poprawki', cls: 'pri', fn: () => { let n = 0; $$('[data-sc]').forEach(x => { const i = ing(x.dataset.sc), v = Math.max(0, num(x.value)); if (i && Math.abs(v - (i.pantry || 0)) > .5) { stockLogAdd({ id: i.id, q: v - (i.pantry || 0), why: 'korekta' }); i.pantry = v; n++; } }); S.stockCheckedAt = today(); save(); closeModal(); render(); toast(n ? `Poprawiono ${n} pozycji` : 'Dzięki, stan potwierdzony'); } }]);
+    { label: 'Zapisz poprawki', cls: 'pri', fn: () => { let n = 0; $$('[data-sc]').forEach(x => { const i = ing(x.dataset.sc), v = Math.max(0, num(x.value)); if (i && Math.abs(v - (i.pantry || 0)) > .5) { stockLogAdd({ id: i.id, q: v - (i.pantry || 0), why: 'korekta' }); i.pantry = v; delete i.pantryNext; rollBatch(i); n++; } }); S.stockCheckedAt = today(); save(); closeModal(); render(); toast(n ? `Poprawiono ${n} pozycji` : 'Dzięki, stan potwierdzony'); } }]);
 }
 function weekReviewCard(wk) {
   const R = weekReview(wk); if (!R) return '';
@@ -106,6 +134,11 @@ function weekReviewCard(wk) {
 function planPrefsLine() {
   const p = S.profile, meat = { less: 'rzadziej', normal: 'normalnie', more: 'często' }[p.meatPref || 'normal'], fz = { normal: 'rzadko', some: 'czasem', more: 'często' }[p.frozenPref || 'some'];
   return `Gotuję raz na ${p.prepDays === 1 ? 'dzień' : p.prepDays + ' dni'} · mięso: ${meat} · mrożonki: ${fz} · lunch: ${({ dinner: 'z obiadokolacji', nocook: 'bez gotowania', cook: 'osobne danie' })[p.lunchMode || 'cook']} · zakupy ${(p.shopTrips | 0) >= 2 ? '2×' : '1×'} w tygodniu`;
+}
+const skipNote = it => it && it.skip && it.skip.length ? `<div class="xs" style="color:var(--clay)">bez: ${esc(it.skip.map(id => (ing(id) || {}).name || id).join(', ').toLowerCase())} (nie masz w domu)</div>` : '';
+function shopDayLine(wk) {
+  const sd = S.shopDay && S.shopDay[wk]; if (!sd || sd < today()) return '';
+  return `<div class="banner sm" style="margin-top:8px">Najpierw jesz z tego, co masz w domu (do ${esc(DAYN[(wdIdx(sd) + 6) % 7])} włącznie). <b>Zakupy: ${esc(DAYFULL[wdIdx(sd)].toLowerCase())}</b>.</div>`;
 }
 function leftoverLine(wk) {
   const l = leftoversFor(wk); if (!l.length) return '';
@@ -120,7 +153,7 @@ function viewPlan() {
   h += quizOffer() + stockCheckBanner();
   const hasPlan = Array.from({ length: 7 }, (_, k) => S.plan[addDays(wk, k)] || {}).some(dp => SL().some(s => dp[s]));
   h += `<div class="card"><div class="row wrap"><button class="pri" data-act="gen">${hasPlan ? 'Ułóż tydzień od nowa' : 'Ułóż tydzień'}</button><button data-act="genFill">Uzupełnij puste</button><button class="ghost" data-act="togglePlanSet" aria-expanded="${UI.planSet ? 'true' : 'false'}">${UI.planSet ? 'Mniej ▴' : 'Ustawienia ▾'}</button></div>
-    <div class="mut xs" style="margin-top:8px">${esc(planPrefsLine())}${menu.length ? ' · własne menu' : ''}${(S.bases[wk] || []).length ? ' · zestaw półproduktów' : ''}</div>${leftoverLine(wk)}`;
+    <div class="mut xs" style="margin-top:8px">${esc(planPrefsLine())}${menu.length ? ' · własne menu' : ''}${(S.bases[wk] || []).length ? ' · zestaw półproduktów' : ''}</div>${leftoverLine(wk)}${shopDayLine(wk)}`;
   if (UI.planSet) h += `<div class="row wrap" style="margin-top:12px"><button class="sm" data-act="menuPicker">Wybierz dania na tydzień</button><button class="sm" data-act="basePicker">Półprodukty na tydzień</button><button class="sm danger" data-act="clearWeek">Wyczyść tydzień</button></div>
     <div class="mut sm" style="margin-top:8px">${menu.length ? `Twoje menu: ${menu.map(id => rec(id)).filter(Boolean).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ')}` : 'Bez wybranego menu generator użyje wszystkich przepisów.'}</div>
     ${(S.bases[wk] || []).length ? `<div class="mut sm" style="margin-top:8px"><b>Zestaw półproduktów (${S.bases[wk].length}):</b> ${S.bases[wk].map(k => ing(k)).filter(Boolean).map(i => `<span class="tag">${esc(i.name.toLowerCase())}</span>`).join(' ')}</div>` : ''}
@@ -130,6 +163,8 @@ function viewPlan() {
       <div><label>Tryb czysty</label><select data-bind="profile.clean"><option value="true" ${S.profile.clean ? 'selected' : ''}>bez przetworzonych</option><option value="false" ${!S.profile.clean ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Zakupy: kończ opakowania</label><select data-bind="profile.packFit">${[['strong', 'tak – mało odpadu, mało produktów'], ['normal', 'trochę'], ['off', 'nie, tylko urozmaicenie']].map(([v, l]) => `<option value="${v}" ${(S.profile.packFit || 'strong') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Śniadanie</label><select data-bind="profile.breakfastQuick"><option value="true" ${S.profile.breakfastQuick !== false ? 'selected' : ''}>shake lub coś szybkiego</option><option value="false" ${S.profile.breakfastQuick === false ? 'selected' : ''}>dowolne</option></select></div>
+      <div><label>Najpierw zużyj, co mam w domu</label><select data-bind="profile.homeFirst"><option value="true" ${S.profile.homeFirst !== false ? 'selected' : ''}>tak – zakupy dopiero, gdy się skończy</option><option value="false" ${S.profile.homeFirst === false ? 'selected' : ''}>nie – zwykły plan</option></select></div>
+      <div><label>Odejmowanie z domu</label><select data-bind="profile.autoUse"><option value="auto" ${S.profile.autoUse !== 'tick' ? 'selected' : ''}>samo, po porze posiłku</option><option value="tick" ${S.profile.autoUse === 'tick' ? 'selected' : ''}>tylko gdy odhaczę posiłek</option></select></div>
       <div><label>Lunch na uczelnię</label><select data-bind="profile.lunchMode">${[['dinner', 'porcja z obiadokolacji z dnia wcześniej'], ['nocook', 'coś bez gotowania'], ['cook', 'osobne danie']].map(([v, l]) => `<option value="${v}" ${(S.profile.lunchMode || 'cook') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div><label>Na uczelnię</label><select data-bind="profile.noSpill"><option value="true" ${S.profile.noSpill !== false ? 'selected' : ''}>nic, co może się wylać</option><option value="false" ${S.profile.noSpill === false ? 'selected' : ''}>dowolne</option></select></div>
       <div><label>Mrożone produkty (np. frytki, warzywa)</label><select data-bind="profile.frozenPref">${[['normal', 'rzadko – tylko gdy tak wychodzi'], ['some', 'czasem (polecam)'], ['more', 'często – oszczędzam czas']].map(([v, l]) => `<option value="${v}" ${(S.profile.frozenPref || 'some') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -151,7 +186,7 @@ function viewPlan() {
       ${any ? `<div class="xs mut">${r0(dm.kcal)} / ${r0(t.kcal)} kcal · białko ${r0(dm.p)}/${r0(t.p)} g</div>${bar(dm.kcal, t.kcal, 'var(--acc)')}` : '<div class="xs mut">Pusto</div>'}`;
     for (const s of SL()) {
       const it = dp[s], r = live(it);
-      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}${it.packed ? '<span class="tag">z obiadokolacji</span>' : ''}</div><div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div><span class="mut" aria-hidden="true">✎</span></div>`;
+      h += `<div class="slotrow" data-act="editSlot" data-d="${d}" data-s="${s}"><span class="sl">${SLOT_PL[s]}</span><div class="grow ${it && (it.eaten || it.skipped) ? 'done' : ''}">${r ? `<div class="nm sm b">${esc(r.name)} ${it.locked ? '<span class="tag">przypięte</span>' : ''}${it.packed ? '<span class="tag">z obiadokolacji</span>' : ''}${it.home ? '<span class="tag">z domu</span>' : ''}</div>${skipNote(it)}<div class="mut xs">${macroLine(itemMacros(it))}</div>` : `<span class="mut sm">${it && it.skipped ? 'pominięte' : '+ wybierz'}</span>`}</div><span class="mut" aria-hidden="true">✎</span></div>`;
     }
     h += `</div>`;
   }
@@ -199,6 +234,7 @@ function viewShop() {
   if (!all.length) return h + `<div class="card mut">Brak planu na ten tydzień. Przejdź do <b>Plan</b>, wybierz dania i wygeneruj tydzień – lista zakupów powstanie sama.</div>`;
   const total = buy.reduce((a, r) => a + r.cost, 0), done = buy.filter(r => chk[r.i.id + '|' + r.trip]).length;
   h += saveBar();
+  if (S.shopDay && S.shopDay[wk] && S.shopDay[wk] >= today()) h += `<div class="banner sm" style="margin-bottom:10px"><b>Zakupy: ${esc(DAYFULL[wdIdx(S.shopDay[wk])].toLowerCase())}.</b> Do tego czasu jesz z tego, co masz w domu – ta lista to tylko to, czego zabraknie na dalsze dni.</div>`;
   h += `<div class="row wrap" style="margin-bottom:8px"><span class="pill">${buy.length} pozycji · ~${money(total)}</span>${covered.length ? `<span class="pill soft">${covered.length} masz w domu</span>` : ''}<select data-bind="profile.store" style="width:auto">${STORES.map(s => `<option ${S.profile.store === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
     <div class="row wrap"><button class="pri" data-act="toReminders">Do Przypomnień</button><button data-act="copyList">Kopiuj / udostępnij</button></div>
     <div class="row wrap" style="margin-top:8px"><button class="sm" data-act="checkAll">Kupiłem wszystko</button><button class="sm" data-act="ftabFridge">Co mam w domu</button></div>
@@ -217,12 +253,17 @@ function viewShop() {
 }
 
 /* ---- fridge / pantry ---- */
+function viewHome() {
+  return `<div class="top"><div><div class="eyebrow">Lodówka, zamrażarka i szafki</div><h1>Dom</h1></div><button class="pri" data-act="fridgeAdd">+ Dodaj</button></div>` + viewFridge();
+}
 function viewFridge() {
   const items = pantryItems().sort((a, b) => ((daysLeft(a) ?? 999) - (daysLeft(b) ?? 999)) || a.name.localeCompare(b.name, 'pl')), ideas = pantryIdeas(8);
   let h = `<div class="card"><div class="row sp"><h2 style="margin:0">Co mam w domu</h2><button class="pri sm" data-act="fridgeAdd">+ Dodaj</button></div>`;
   h += items.length ? items.map(i => { const dl = daysLeft(i); return `<div class="meal" data-act="fridgeEdit" data-id="${i.id}"><div class="grow"><div class="b">${esc(i.name)}</div><div class="mut xs">${i.pantryExp ? `ważne do ${esc(fmtDay(i.pantryExp))}${dl != null && dl <= 2 ? ' – <b style="color:var(--clay)">zużyj szybko</b>' : ''}` : 'bez daty ważności'}${i.pantryNext ? ` · nowe ${fmtAmt(i.pantryNext.q, i.unit)} do ${esc(fmtDay(i.pantryNext.exp))}` : ''}</div></div><div class="b">${fmtAmt(i.pantry, i.unit)}</div></div>`; }).join('')
     : `<div class="mut sm" style="margin-top:10px">Dodaj to, co masz w lodówce i szafkach. Planer zużyje to najpierw, lista zakupów pokaże te produkty jako odhaczone, a poniżej dostaniesz pomysły, co z tego zrobić.</div>`;
-  h += `<div class="mut xs" style="margin-top:10px">Stan liczy się sam: zakupy dodają całe opakowania, po każdym posiłku odejmuje się to, co poszło do dania, a przeterminowane rzeczy znikają. Popraw ilość, jeśli się nie zgadza.</div></div>`;
+  h += `<div class="mut xs" style="margin-top:10px">Stan liczy się sam: zakupy dodają całe opakowania, a po każdym posiłku odejmuje się to, co poszło do dania. Zmienisz albo usuniesz posiłek – jedzenie wraca. Nic nie znika samo z powodu daty. Popraw ilość, jeśli się nie zgadza.</div></div>`;
+  const sp = spoiledItems();
+  if (sp.length) h += `<div class="card"><h2>Sprawdź, czy jeszcze dobre</h2><div class="mut xs" style="margin:-4px 0 6px">Minął (szacowany) termin. Nic nie znika samo – zdecyduj.</div>${sp.map(i => `<div class="row sp sm" style="padding:6px 0;border-top:1px solid var(--line);gap:8px"><span class="grow">${esc(i.name)} <span class="mut xs">${fmtAmt(i.pantry, i.unit)} · do ${esc(fmtDay(i.pantryExp))}</span></span><button class="sm" data-act="spoilOk" data-id="${i.id}">Jeszcze dobre</button><button class="sm danger" data-act="spoilOut" data-id="${i.id}">Wyrzuciłem</button></div>`).join('')}</div>`;
   const fl = weekFlow();
   if (fl.length) h += `<div class="card"><h2>Ten tydzień: kupione, zużyte, zostanie</h2><div class="mut xs" style="margin:-4px 0 6px">„Zostanie” to prognoza na niedzielę wieczorem, po posiłkach, które jeszcze masz w planie. To trafia do planowania kolejnego tygodnia.</div>
     <div class="row sp xs mut" style="padding:3px 0"><span class="grow">Produkt</span><span style="width:58px;text-align:right">kupione</span><span style="width:58px;text-align:right">zużyte</span><span style="width:64px;text-align:right">zostanie</span></div>
@@ -242,14 +283,14 @@ function fridgeAdd() {
   modal('Dodaj do domu', `<label>Produkt</label>${pickHtml('fa_i', list)}
     <div class="grid2"><div><label>Ile masz</label><input id="fa_a" inputmode="decimal" placeholder="np. 400"></div><div><label>Ważne do (opcjonalnie)</label><input id="fa_e" type="date"></div></div>
     <div class="mut xs" style="margin-top:8px">Ilość w jednostce produktu (g, ml lub szt.). Nie ma produktu? Dodaj go w „Składniki".</div><div id="fa_log" class="sm" style="margin-top:8px"></div>`,
-    [{ label: 'Dodaj i kolejny', fn: () => { const i = ing(pickId('fa_i')), a = num(val('fa_a')); if (!i) return toast('Wybierz produkt'); if (a <= 0) return toast('Wpisz ilość'); i.pantry = (i.pantry || 0) + a; stockLogAdd({ id: i.id, q: a, why: 'dodane ręcznie' }); if (exp()) i.pantryExp = exp(); save(); $('#fa_log').innerHTML += `✓ ${esc(i.name)} ${fmtAmt(a, i.unit)}<br>`; $('#fa_a').value = ''; $('#fa_e').value = ''; pickSet('fa_i', null); $('#fa_i_t').focus(); } },
-    { label: 'Gotowe', cls: 'pri', fn: () => { const i = ing(pickId('fa_i')), a = num(val('fa_a')); if (i && a > 0) { i.pantry = (i.pantry || 0) + a; stockLogAdd({ id: i.id, q: a, why: 'dodane ręcznie' }); if (exp()) i.pantryExp = exp(); } save(); closeModal(); render(); } }]);
+    [{ label: 'Dodaj i kolejny', fn: () => { const i = ing(pickId('fa_i')), a = num(val('fa_a')); if (!i) return toast('Wybierz produkt'); if (a <= 0) return toast('Wpisz ilość'); rollBatch(i); i.pantry = (i.pantry || 0) + a; stockLogAdd({ id: i.id, q: a, why: 'dodane ręcznie' }); if (exp()) i.pantryExp = exp(); save(); $('#fa_log').innerHTML += `✓ ${esc(i.name)} ${fmtAmt(a, i.unit)}<br>`; $('#fa_a').value = ''; $('#fa_e').value = ''; pickSet('fa_i', null); $('#fa_i_t').focus(); } },
+    { label: 'Gotowe', cls: 'pri', fn: () => { const i = ing(pickId('fa_i')), a = num(val('fa_a')); if (i && a > 0) { rollBatch(i); i.pantry = (i.pantry || 0) + a; stockLogAdd({ id: i.id, q: a, why: 'dodane ręcznie' }); if (exp()) i.pantryExp = exp(); } save(); closeModal(); render(); } }]);
 }
 function fridgeEdit(id) {
   const i = ing(id); if (!i) return;
   modal(i.name, `<div class="grid2"><div><label>Ile masz (${i.unit})</label><input id="fe_a" inputmode="decimal" value="${i.pantry || 0}"></div><div><label>Ważne do</label><input id="fe_e" type="date" value="${i.pantryExp || ''}"></div></div>`,
-    [{ label: 'Nie mam już', cls: 'danger', fn: () => { i.pantry = 0; delete i.pantryExp; delete i.pantryNext; save(); closeModal(); render(); } },
-    { label: 'Zapisz', cls: 'pri', fn: () => { i.pantry = Math.max(0, num(val('fe_a'))); if (val('fe_e')) i.pantryExp = val('fe_e'); else delete i.pantryExp; save(); closeModal(); render(); } }]);
+    [{ label: 'Nie mam już', cls: 'danger', fn: () => { if (i.pantry > .01) stockLogAdd({ id: i.id, q: -i.pantry, why: 'korekta' }); i.pantry = 0; delete i.pantryExp; delete i.pantryNext; save(); closeModal(); render(); } },
+    { label: 'Zapisz', cls: 'pri', fn: () => { const v = Math.max(0, num(val('fe_a'))); if (Math.abs(v - (i.pantry || 0)) > .01) stockLogAdd({ id: i.id, q: v - (i.pantry || 0), why: 'korekta' }); i.pantry = v; delete i.pantryNext; if (val('fe_e')) i.pantryExp = val('fe_e'); else delete i.pantryExp; rollBatch(i); save(); closeModal(); render(); } }]);
 }
 function ideaPlan(rid) {
   const r = rec(rid); if (!r) return;
@@ -262,9 +303,9 @@ function ideaPlan(rid) {
 function viewFoods() {
   const q = norm(UI.q);
   let h = `<div class="top"><div><div class="eyebrow">Twoja baza</div><h1>Jedzenie</h1></div><button class="pri" data-act="${UI.foodsTab === 'ing' ? 'editIng' : UI.foodsTab === 'fridge' ? 'fridgeAdd' : 'editRec'}">+ ${UI.foodsTab === 'fridge' ? 'Dodaj' : 'Nowy'}</button></div>
-    <div class="seg" style="margin-bottom:10px"><button class="${UI.foodsTab === 'rec' ? 'sel' : ''}" data-act="ftab" data-t="rec">Przepisy (${S.recipes.length})</button><button class="${UI.foodsTab === 'ing' ? 'sel' : ''}" data-act="ftab" data-t="ing">Składniki (${S.ingredients.length})</button><button class="${UI.foodsTab === 'fridge' ? 'sel' : ''}" data-act="ftab" data-t="fridge">W domu (${pantryItems().length})</button></div>
+    <div class="seg" style="margin-bottom:10px"><button class="${UI.foodsTab === 'rec' ? 'sel' : ''}" data-act="ftab" data-t="rec">Przepisy (${S.recipes.length})</button><button class="${UI.foodsTab === 'ing' ? 'sel' : ''}" data-act="ftab" data-t="ing">Składniki (${S.ingredients.length})</button><button data-act="nav" data-v="home">W domu (${pantryItems().length})</button></div>
     ${UI.foodsTab === 'fridge' ? '' : `<input id="q" placeholder="Szukaj…" value="${esc(UI.q)}" data-bind-q>`}`;
-  if (UI.foodsTab === 'fridge') return h + viewFridge();
+
   if (UI.foodsTab === 'rec') {
     const dropList = (S.prefs.dropped || []).filter(x => S.prefs.banRec.includes(x.rid)), nDrop = dropList.length, cl = UI.cfg || {};
     h += `<div class="row wrap" style="margin:10px 0 0"><button class="sm pri" data-act="claudeNew">Nowe przepisy od Claude</button><button class="sm" data-act="frozenAll">Wersje z mrożonek</button><button class="sm ${UI.showDropped ? 'sel' : ''}" data-act="showDropped">Wypadły z bazy (${nDrop})</button><span class="xs mut">${cl.mode === 'cli' || cl.mode === 'api' ? '<span style="color:var(--acc)">●</span> Claude połączony' : 'Claude niepołączony'}</span></div>`;
@@ -343,6 +384,7 @@ function viewMe() {
   const hookUrl = UI.local ? location.origin + location.pathname + '?workout=Trening' : `${origin}/api/workout?token=${cfg.hookToken || ''}&name=Trening`;
   const field = (l, path, v, extra = '') => `<div><label>${l}</label><input type="number" step="any" inputmode="decimal" value="${v}" data-bind="${path}" ${extra}></div>`;
   let h = `<div class="top"><div><div class="eyebrow">Ustawienia</div><h1>Ja</h1></div></div>`;
+  h += `<div class="card"><div class="row wrap"><button data-act="nav" data-v="foods">Przepisy i składniki</button><button data-act="nav" data-v="ai">Asystent Claude</button></div></div>`;
   h += `<div class="card"><h2>Ciało i cel</h2><div class="grid3">${field('Waga (kg)', 'profile.weight', p.weight)}${field('Wzrost (cm)', 'profile.height', p.height)}${field('% tłuszczu', 'profile.bodyFat', p.bodyFat)}</div>
     <div class="grid2"><div><label>Aktywność poza treningiem</label><select data-bind="profile.activity">${ACT.map(([v, l]) => `<option value="${v}" ${p.activity === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>${field('Nadwyżka kalorii (%)', 'profile.surplus', p.surplus)}</div>
     <div class="grid3">${field('Białko g/kg', 'profile.proteinPerKg', p.proteinPerKg)}${field('Tłuszcz % kcal', 'profile.fatPct', p.fatPct)}${field('Bonus w dni treningowe (kcal)', 'profile.trainDelta', p.trainDelta)}</div>
@@ -384,12 +426,12 @@ function viewMe() {
 
 function render() {
   if (tickStock()) save();
-  const v = { today: viewToday, plan: viewPlan, shop: viewShop, foods: viewFoods, ai: viewAI, me: viewMe }[UI.view];
+  const v = { today: viewToday, plan: viewPlan, shop: viewShop, home: viewHome, foods: viewFoods, ai: viewAI, me: viewMe }[UI.view] || viewToday;
   const y = window.scrollY, focus = document.activeElement && document.activeElement.id;
   const aiText = $('#aiin') ? $('#aiin').value : '';
   $('#app').innerHTML = v();
   if (aiText && $('#aiin')) $('#aiin').value = aiText;
-  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === UI.view));
+  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === UI.view || (b.dataset.v === 'me' && (UI.view === 'foods' || UI.view === 'ai'))));
   try { document.title = UI.view === 'today' ? `${r0(targets(UI.date).kcal - consumed(UI.date).kcal).toLocaleString('pl-PL')} kcal · Fuel` : 'Fuel'; } catch (e) { }
   if (UI.view !== 'ai') window.scrollTo(0, y); else scrollChat();
   if (focus === 'q') { const q = $('#q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
@@ -798,6 +840,8 @@ const ACTIONS = {
   shopNext: () => { UI.week = addDays(weekStart(today()), 7); UI.view = 'shop'; render(); window.scrollTo(0, 0); },
   delRec: ds => withUndo(() => { const x = removeRecipe(ds.id); return `Usunięto: ${x ? x.name : 'przepis'}`; }),
   prefsEdit: prefsDialog,
+  spoilOk: ds => withUndo(() => { const i = ing(ds.id); spoilOk(i); return `${i.name}: jeszcze 3 dni`; }),
+  spoilOut: ds => withUndo(() => { const i = ing(ds.id); spoilOut(i); return `${i.name}: usunięto z domu`; }),
   togglePlanSet: () => { UI.planSet = !UI.planSet; render(); },
   lazyDay: () => withUndo(() => { const n = lazyDay(UI.date); return n ? `Na dziś: ${n} – bez gotowania` : 'Nie znalazłem szybszej opcji albo obiadokolacja jest już zjedzona'; }),
   stockCheck: stockCheckDialog,
@@ -836,13 +880,14 @@ const ACTIONS = {
   week: ds => { UI.week = addDays(UI.week, 7 * +ds.n); render(); },
   toggleTrain: () => { const d = UI.date, w = S.workouts[d]; S.workouts[d] = { ...(w || {}), done: !isTrain(d), manual: true }; save(); render(); toast(isTrain(d) ? 'Dzień treningowy – cel podniesiony' : 'Dzień wolny – cel obniżony'); },
   eat: (ds, el) => { setEaten(ds.d, ds.s, el.checked); const it = S.plan[ds.d][ds.s]; if (it && it.eaten && !it.learnedEat) { learn(it.rid, 1, 'ate'); it.learnedEat = true; } save(); render(); },
+  eatNow: ds => withUndo(() => { setEaten(ds.d, ds.s, true); const it = S.plan[ds.d][ds.s]; if (it && !it.learnedEat) { learn(it.rid, 1, 'ate'); it.learnedEat = true; } return 'Zapisane – składniki odjęte z domu'; }),
   viewMeal: ds => { const it = (S.plan[ds.d] || {})[ds.s]; if (live(it)) viewRec(it.rid, it.serv, { d: ds.d, s: ds.s }); },
   viewRec: ds => viewRec(ds.id, +ds.serv || 1),
   delLog: ds => withUndo(() => { removeLog(ds.d, ds.id); return 'Usunięto wpis'; }),
   addFood, cheat: cheatDialog, logWorkout: workoutDialog, menuPicker,
   refit: () => { refitDay(UI.date); save(); render(); toast('Porcje dopasowane do dzisiejszego celu'); },
   clearStarter: () => { if (!confirm('Usunąć wszystkie startowe składniki i przepisy? (Twoje własne zostaną.)')) return; S.ingredients = S.ingredients.filter(i => !i.starter); S.recipes = S.recipes.filter(r => !r.starter); S.starter = false; S.plan = {}; S.menus = {}; save(); render(); },
-  gen: () => withUndo(() => { const w = generate(UI.week); return w.length ? w[0] : 'Plan wygenerowany'; }),
+  gen: () => withUndo(() => genSmart(UI.week) || 'Plan wygenerowany'),
   genFill: () => withUndo(() => { const w = generate(UI.week, { keep: true }); return w.length ? w[0] : 'Uzupełniono puste miejsca'; }),
   genDay: ds => withUndo(() => { generate(UI.week, { only: ds.d }); return 'Wylosowano ten dzień'; }),
   clearWeek: () => withUndo(() => { for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(UI.week, i)]; if (dp) for (const s of SLOTS_ALL) if (dp[s] && !dp[s].eaten) delete dp[s]; } return 'Plan wyczyszczony'; }),
@@ -851,13 +896,13 @@ const ACTIONS = {
   rotOpt: ds => { const k = ds.d + ds.s; UI.rot = UI.rot || {}; UI.optSeen = UI.optSeen || {}; const rot = UI.rot[k] || 0, seen = UI.optSeen[k] || []; const shown = optionsFor(ds.d, ds.s, 3, rot, seen); shown.forEach(x => learn(x.rid, -.25, 'dismissed')); UI.optSeen[k] = seen.concat(shown.map(x => x.rid)); save(); UI.rot[k] = rot + 1; if ($('#modal').open) { const q = ds.d, w = ds.s; closeModal(); editSlot(q, w); } else render(); },
   applySwap: ds => withUndo(() => { const it = S.plan[ds.d][ds.s]; it.rid = ds.rid; it.serv = +ds.serv; return 'Zamieniono danie'; }),
   ftab: ds => { UI.foodsTab = ds.t; UI.q = ''; render(); },
-  ftabFridge: () => { UI.foodsTab = 'fridge'; UI.view = 'foods'; render(); window.scrollTo(0, 0); },
+  ftabFridge: () => { UI.view = 'home'; render(); window.scrollTo(0, 0); },
   fridgeAdd, fridgeEdit: ds => fridgeEdit(ds.id), ideaPlan: ds => ideaPlan(ds.id),
   sfilter: ds => { UI.slotFilter = ds.k; render(); },
   editIng: ds => editIng(ds.id), editRec: ds => editRec(ds.id),
   trainDay: ds => { const a = S.profile.trainDays, i = +ds.i; S.profile.trainDays = a.includes(i) ? a.filter(x => x !== i) : [...a, i].sort(); save(); render(); },
   shopChk: (ds, el) => { if (!el.checked) return; withUndo(() => { const r = shopList(UI.week).find(x => x.i.id + '|' + x.trip === ds.id); if (!r) return 'Już masz to w domu'; addBought(r.i, r.qty); return `${r.i.name}: dodano ${fmtAmt(r.qty, r.i.unit)} do domu`; }); },
-  genWeekHere: () => { UI.week = weekStart(UI.date); withUndo(() => { const w = generate(UI.week); return w.length ? w[0] : 'Plan wygenerowany – sprawdź listę zakupów'; }); },
+  genWeekHere: () => { UI.week = weekStart(UI.date); withUndo(() => genSmart(UI.week) || 'Plan wygenerowany – sprawdź listę zakupów'); },
   menuHere: () => { UI.week = weekStart(UI.date); menuPicker(); },
   checkAll: () => withUndo(() => { const rows = shopSorted(shopList(UI.week)); rows.forEach(r => addBought(r.i, r.qty)); return rows.length ? `${rows.length} pozycji dodano do domu` : 'Nic do dodania'; }),
   toReminders: () => { if (!remindersText(UI.week)) return toast('Lista zakupów jest pusta'); if (!localStorage.getItem('fuel-rem-ready')) remindersSetup(); else launchReminders(); },

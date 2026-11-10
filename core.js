@@ -137,8 +137,10 @@ const unitCost = i => (i.price && i.pack) ? i.price / i.pack : 0;
 function recipeCost(r) { let c = 0; for (const it of r.items) { const i = ing(it.ing); if (i) c += unitCost(i) * it.amt; } return c; }
 function recipeProc(r) { let m = 0; for (const it of r.items) { const i = ing(it.ing); if (i) m = Math.max(m, i.proc || 0); } return m; }
 const isClean = r => recipeProc(r) < 2;
-const itemMacros = it => { const r = rec(it.rid); return r ? addM(ZERO(), recipeMacros(r), it.serv) : ZERO(); };
-const itemCost = it => { const r = rec(it.rid); return r ? recipeCost(r) * it.serv : 0; };
+/* the ingredients a planned meal really uses (it.skip = small extras left out because you do not have them) */
+const itItems = it => { const r = rec(it.rid); if (!r) return []; return it.skip && it.skip.length ? r.items.filter(x => !it.skip.includes(x.ing)) : r.items; };
+const itemMacros = it => { const r = rec(it.rid); return r ? addM(ZERO(), recipeMacros(it.skip && it.skip.length ? { items: itItems(it) } : r), it.serv) : ZERO(); };
+const itemCost = it => { const r = rec(it.rid); return r ? recipeCost({ items: itItems(it) }) * it.serv : 0; };
 const live = it => it && !it.skipped && rec(it.rid);
 
 function bmr() {
@@ -173,16 +175,16 @@ function plannedLeft(d) {
 }
 function setEaten(d, slot, val) {
   const it = S.plan[d][slot]; if (!!it.eaten === val) return;
-  it.eaten = val; const r = rec(it.rid);
-  if (val && it.auto) it.auto = false;   // stock for this meal was already taken automatically
-  else if (val) { it.used = r ? takeStock(r.items.map(x => ({ ing: x.ing, amt: x.amt * it.serv })), r.name) : {}; }
-  else { for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } it.used = {}; it.noAuto = true; }
+  it.eaten = val;
+  if (val) { takeMeal(d, slot); delete it.auto; }   // nothing is taken twice: a meal already counted automatically stays as it is
+  else { giveMeal(d, slot); it.noAuto = true; }
 }
 
 /* ============ automatic stock: the app knows what is left without typing ============
    - buying (ticking the shopping list) adds the whole packs to the stock, with a best-before date from the product's shelf life
    - a planned meal takes its ingredients out of the stock once its time has passed (unless you skipped it)
-   - things past their date are thrown out; every change is in S.stockLog so you can see and correct it */
+   - S.taken remembers exactly what each meal took: change, remove or skip the meal and the food goes back
+   - nothing is ever thrown out by itself: past its date the app only asks you; every change is in S.stockLog */
 const SLOT_DONE_H = { breakfast: 10, lunch: 15, dinner: 21 };
 function stockLogAdd(e) { S.stockLog = S.stockLog || []; S.stockLog.push(Object.assign({ t: Date.now() }, e)); if (S.stockLog.length > 250) S.stockLog.splice(0, S.stockLog.length - 250); }
 function addBought(i, qty, how = 'kupione') {
@@ -196,9 +198,8 @@ function addBought(i, qty, how = 'kupione') {
 }
 /* when the old part of a product is used up, the newer batch (with its own date) becomes the stock */
 function rollBatch(i) {
-  if (!i.pantryNext) return;
-  if (!((i.pantry || 0) > .01)) { delete i.pantryNext; return; }
-  if (i.pantry <= i.pantryNext.q + .01) { i.pantryExp = i.pantryNext.exp; delete i.pantryNext; }
+  if (!((i.pantry || 0) > .01)) { delete i.pantryNext; delete i.pantryExp; return; }   // nothing left: an old date must never stick to the next thing you add
+  if (i.pantryNext && i.pantry <= i.pantryNext.q + .01) { i.pantryExp = i.pantryNext.exp; delete i.pantryNext; }
 }
 /* take food out of the stock (oldest batch first) – also for things logged by hand; returns what was taken so it can be given back */
 function takeStock(items, why) {
@@ -210,38 +211,51 @@ function takeStock(items, why) {
   }
   return used;
 }
+/* past the (estimated) date: shown with "thrown away" / "still good" – never removed by itself */
+const spoiledItems = () => S.ingredients.filter(i => (i.pantry || 0) > .01 && i.pantryExp && i.pantryExp < today());
+function spoilOut(i) { const old = i.pantryNext ? Math.max(0, i.pantry - i.pantryNext.q) : i.pantry; stockLogAdd({ id: i.id, q: -old, why: 'wyrzucone' }); i.pantry -= old; if (i.pantryNext) { i.pantryExp = i.pantryNext.exp; delete i.pantryNext; } rollBatch(i); }
+function spoilOk(i) { i.pantryExp = addDays(today(), 3); }
 function giveStock(used) { for (const [id, q] of Object.entries(used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } }
+const mealKey = (d, s) => d + '|' + s;
+function takeMeal(d, s) {
+  S.taken = S.taken || {}; const k = mealKey(d, s), it = (S.plan[d] || {})[s]; if (!it || S.taken[k]) return false;
+  const r = rec(it.rid); if (!r) return false;
+  S.taken[k] = { rid: it.rid, serv: it.serv, used: takeStock(itItems(it).map(x => ({ ing: x.ing, amt: x.amt * it.serv })), r.name) };
+  return true;
+}
+function giveMeal(d, s) {
+  const k = mealKey(d, s), L = S.taken && S.taken[k]; if (!L) return false;
+  for (const [id, q] of Object.entries(L.used || {})) { const i = ing(id); if (!i || q <= .01) continue; i.pantry = (i.pantry || 0) + q; stockLogAdd({ id, q, why: 'oddane', meal: (rec(L.rid) || {}).name }); }
+  delete S.taken[k]; const it = (S.plan[d] || {})[s]; if (it) { delete it.auto; delete it.used; }
+  return true;
+}
 function mealDue(d, s) { const t = today(); return d < t || (d === t && new Date().getHours() >= SLOT_DONE_H[s]); }
 function tickStock() {
   if (!S || !S.plan) return false;
-  const t = today(); let changed = false;
+  const t = today(); let changed = false; S.taken = S.taken || {};
   if (!S.stockSince) { S.stockSince = t; changed = true; }
+  // meals counted before the ledger existed
+  for (const [d, dp] of Object.entries(S.plan)) for (const s of SLOTS_ALL) { const it = dp[s]; if (it && it.used && (it.auto || it.eaten) && !S.taken[mealKey(d, s)]) { S.taken[mealKey(d, s)] = { rid: it.rid, serv: it.serv, used: it.used }; delete it.used; changed = true; } }
+  // a meal that was changed, removed or skipped after its food was counted gives the food back (the new meal is counted on its own)
+  for (const k of Object.keys(S.taken)) {
+    const [d, s] = k.split('|'), it = (S.plan[d] || {})[s], L = S.taken[k];
+    if (!it || it.rid !== L.rid || Math.abs((it.serv || 0) - L.serv) > .01 || it.skipped || (!it.eaten && !it.auto)) { giveMeal(d, s); changed = true; }
+  }
+  const auto = S.profile.autoUse !== 'tick';
   for (const [d, dp] of Object.entries(S.plan)) {
-    if (d < S.stockSince || d > t) continue;
+    if (d < S.stockSince) continue;
     for (const s of SLOTS_ALL) {
-      const it = dp[s]; if (!it) continue;
-      if (it.auto && it.skipped) {   // you skipped it afterwards: give the food back
-        for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; }
-        it.used = {}; it.auto = false; it.noAuto = true; changed = true; continue;
-      }
-      if (it.eaten || it.auto || it.skipped || it.noAuto || !mealDue(d, s)) continue;
-      const r = rec(it.rid); if (!r) continue;
-      it.used = {}; it.auto = true; changed = true;
-      for (const x of r.items) {
-        const i = ing(x.ing); if (!i || !(i.pantry > 0)) continue;
-        const dec = Math.min(i.pantry, x.amt * it.serv); i.pantry -= dec; it.used[i.id] = (it.used[i.id] || 0) + dec;
-        rollBatch(i);
-        if (dec > .01) stockLogAdd({ id: i.id, q: -dec, why: 'zużyte', meal: r.name });
-      }
+      const it = dp[s]; if (!it || it.skipped || !rec(it.rid)) continue;
+      const k = mealKey(d, s);
+      if (it.eaten) { if (!S.taken[k] && takeMeal(d, s)) changed = true; continue; }
+      if (!mealDue(d, s)) { if (!it.pend) { it.pend = 1; changed = true; } continue; }   // seen before its time: may be counted when the time comes
+      if (S.taken[k] || it.noAuto || !auto) continue;
+      if (!it.pend && !it.locked) { it.noAuto = true; changed = true; continue; }   // the planner put it there after its time had passed: you did not eat it, nothing is taken
+      if (takeMeal(d, s)) { it.auto = true; changed = true; }
     }
   }
-  for (const i of S.ingredients) {   // spoiled: one day of grace after the date
-    rollBatch(i);
-    if ((i.pantry || 0) > .01 && i.pantryExp && i.pantryExp < addDays(t, -1)) {
-      const nx = i.pantryNext, old = nx ? Math.max(0, i.pantry - nx.q) : i.pantry;   // only the old batch goes off
-      stockLogAdd({ id: i.id, q: -old, why: 'przeterminowane' }); i.pantry -= old; changed = true;
-      if (nx) { i.pantryExp = nx.exp; delete i.pantryNext; } else { i.pantry = 0; delete i.pantryExp; }
-    }
+  for (const i of S.ingredients) {   // empty products lose their old dates; nothing is thrown out without asking (see spoiledItems)
+    const had = !!(i.pantryExp || i.pantryNext); rollBatch(i); if (had && !(i.pantryExp || i.pantryNext)) changed = true;
   }
   return changed;
 }
@@ -260,7 +274,7 @@ function projectStock(week) {
     for (const s of SLOTS_ALL) {
       const it = dp[s]; if (!it || it.eaten || it.auto || it.skipped) continue;
       const r = rec(it.rid); if (!r) continue;
-      for (const x of r.items) if (m[x.ing] > 0) m[x.ing] = Math.max(0, m[x.ing] - x.amt * it.serv);
+      for (const x of itItems(it)) if (m[x.ing] > 0) m[x.ing] = Math.max(0, m[x.ing] - x.amt * it.serv);
     }
   }
   for (const i of S.ingredients) if (m[i.id] > 0 && i.pantryExp && i.pantryExp < week) m[i.id] = (i.pantryNext && i.pantryNext.exp >= week) ? Math.min(m[i.id], i.pantryNext.q) : 0;
@@ -327,7 +341,8 @@ const niceQty = (a, u) => u === 'pcs' ? (a <= 3 ? Math.ceil(a * 2 - 1e-9) / 2 : 
 const cookQty = (a, u) => u === 'pcs' ? (a < 3 ? Math.round(a * 2) / 2 : Math.round(a)) : (a < 20 ? Math.round(a) : a < 200 ? Math.round(a / 5) * 5 : Math.round(a / 10) * 10);
 const basketAll = need => { const a = basketOf(need[0]); if ((S.profile.shopTrips | 0) < 2) return a; const b = basketOf(need[1]); return { cost: a.cost + b.cost, distinct: a.distinct + b.distinct, waste: a.waste + b.waste }; };   // one basket per shopping trip
 const clampServ = x => Math.min(3, Math.max(.5, Math.round(x * 4) / 4));
-const baseSetOf = week => { const b = S.bases && S.bases[week]; return b && b.length ? new Set(b) : null; };
+let SET_OVR = null;   // while planning from home: only products you have
+const baseSetOf = week => { if (SET_OVR) return SET_OVR; const b = S.bases && S.bases[week]; return b && b.length ? new Set(b) : null; };
 /* every dish that may be offered for a slot: your recipes + dishes assembled from base products.
    With a chosen base set only dishes made of those products (plus staples and what is already at home) are offered. */
 /* "might spill in a bag": shakes, anything with a cup of milk, big yoghurt/skyr bowls */
@@ -376,7 +391,7 @@ function generateRaw(week, opts = {}) {
   const start = today(), warnings = [], slots = SL(), N = Math.max(1, S.profile.prepDays | 0);
   const LFD = S.profile.lunchMode === 'dinner' && slots.includes('lunch');   // lunch = a packed portion of the evening before's dinner, nothing cooked separately
   const days = [];
-  for (let i = 0; i < 7; i++) { const d = addDays(week, i); if (d >= start && (!opts.only || opts.only === d)) days.push(d); }
+  for (let i = 0; i < 7; i++) { const d = addDays(week, i); if (d >= start && (!opts.only || opts.only === d) && (!opts.from || d >= opts.from)) days.push(d); }
   if (!days.length) return ['Ten tydzień jest już za nami'];
   const ctx = {}, prevUse = {};
   for (let i = 0; i < 7; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (dp[s] && (dp[s].eaten || dp[s].locked)) prevUse[dp[s].rid] = (prevUse[dp[s].rid] || 0) + 1; }
@@ -415,7 +430,7 @@ function generateRaw(week, opts = {}) {
   const prevSet = new Set();
   for (let i = -7; i < 0; i++) { const dp = S.plan[addDays(week, i)] || {}; for (const s of slots) if (live(dp[s])) prevSet.add(dp[s].rid); }
   const baseNeed = [{}, {}];
-  for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten || it.auto) continue; for (const x of rec(it.rid).items) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
+  for (let i = 0; i < 7; i++) { const dd = addDays(week, i), dp = S.plan[dd] || {}; if (dd < start) continue; const bn = baseNeed[tripOf(i)]; for (const s of slots) { const it = dp[s]; if (!live(it) || it.eaten || it.auto) continue; for (const x of itItems(it)) bn[x.ing] = (bn[x.ing] || 0) + x.amt * it.serv; } }
   const FW = ({ normal: .08, some: .1, more: .7 })[S.profile.frozenPref || 'some'];
   const pm = new Map(), pf = r => { let v = pm.get(r.id); if (v === undefined) pm.set(r.id, v = prefScore(r)); return v; };
   const mc = new Map(), rm = r => { let v = mc.get(r.id); if (!v) mc.set(r.id, v = recipeMacros(r)); return v; };
@@ -503,7 +518,7 @@ function generateRaw(week, opts = {}) {
       const need = [Object.assign({}, baseNeed[0]), Object.assign({}, baseNeed[1])]; let sc = 0;
       for (const d of used) {
         const c2 = ctx[d], tot = ZERO();
-        for (const s of c2.free) { const it = c2.dp[s]; if (!it) continue; addM(tot, itemMacros(it)); const nt = need[tripOf(wdIdx(d))]; for (const x of rec(it.rid).items) nt[x.ing] = (nt[x.ing] || 0) + x.amt * it.serv; }
+        for (const s of c2.free) { const it = c2.dp[s]; if (!it) continue; addM(tot, itemMacros(it)); const nt = need[tripOf(wdIdx(d))]; for (const x of itItems(it)) nt[x.ing] = (nt[x.ing] || 0) + x.amt * it.serv; }
         sc += Math.abs(tot.kcal - c2.kLeft) / Math.max(c2.kLeft, 1) * 22 + Math.max(0, c2.pLeft - tot.p) / Math.max(c2.pLeft, 1) * 4;
       }
       const sh = basketAll(need);
@@ -523,6 +538,102 @@ function generateRaw(week, opts = {}) {
     }
   }
   return warnings;
+}
+/* ============ use what you have first ============
+   Days from today are planned ONLY from the food at home (plus oil, onion, garlic). Dinner is cooked once for `prepDays`
+   days when the stock allows it; with the packed-lunch mode, dinner also covers the next day's school lunch.
+   The first day the stock can no longer feed you (under 75% of the day's calories) is the shopping day: only the days
+   from then on get a normal plan, so the shopping list holds only what those days need. */
+function planFromHome(week) {
+  const t = today(), start = week > t ? week : t, end = addDays(week, 6); if (start > end) return { days: 0 };
+  const slots = SL(), N = Math.max(1, S.profile.prepDays | 0), LFD = S.profile.lunchMode === 'dinner' && slots.includes('lunch');
+  const prevOvr = STOCK_AT; STOCK_AT = stockFor(week);
+  const left = {}; for (const i of S.ingredients) { const q = stockQ(i); if (q > .01) left[i.id] = q; }
+  const fixedIt = it => it && (it.eaten || it.auto || it.locked || it.skipped);
+  for (let d = start; d <= end; d = addDays(d, 1)) {   // clear what the planner made before; fixed meals keep their food
+    const dp = S.plan[d]; if (!dp) continue;
+    for (const s of slots) { const it = dp[s]; if (!it) continue; if (!fixedIt(it)) { delete dp[s]; continue; }
+      if (it.eaten || it.auto || it.skipped) continue; for (const x of itItems(it)) if (left[x.ing]) left[x.ing] = Math.max(0, left[x.ing] - x.amt * it.serv); }
+  }
+  SET_OVR = new Set(Object.keys(left));
+  const pools = {}; for (const s of slots) { const seen = new Set(), p0 = optionPool(s, week).concat((SET_OVR = null, optionPool(s, week, true).filter(r => !r.combo))); SET_OVR = new Set(Object.keys(left)); let p = p0.filter(r => !seen.has(r.name) && seen.add(r.name) && prefScore(r) > TASTE_CUT); if (s === 'lunch' && LFD) { const q = p.filter(noCook); if (q.length >= 8) p = q.concat(p.filter(r => !noCook(r))); } if (s === 'dinner' && LFD) p = p.filter(r => !spillable(r)); pools[s] = p; }
+  SET_OVR = null;
+  const q4 = x => Math.floor(x * 4 + 1e-9) / 4;
+  const nrm = x => String(x || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const named = (r, id) => { const w = nrm((ing(id) || {}).name).split(/[^a-z]+/).filter(x => x.length >= 4)[0]; return !!w && nrm(r.name).includes(w.slice(0, 5)); };
+  const fit = (r, kT, extra = 0) => {   // largest sensible portion the stock allows (extra = servings also reserved for tomorrow's lunch box)
+    const full = recipeMacros(r); if (!(full.kcal > 0)) return null;
+    const skip = r.items.filter(x => !COMBO_STAPLES.has(x.ing) && !((left[x.ing] || 0) > 0)).map(x => x.ing);
+    if (skip.length > 2 || (skip.length && skip.some(id => named(r, id) && (/\bsos|curry|gulasz|zupa|leczo|bolognese|chili/.test(nrm(r.name)) || ingMacros(ing(id), (r.items.find(x => x.ing === id) || {}).amt || 0).kcal >= full.kcal * .12)))) return null;   // "chicken in tomato sauce" without tomatoes is not that dish
+    const items = skip.length ? r.items.filter(x => !skip.includes(x.ing)) : r.items, m = skip.length ? recipeMacros({ items }) : full;
+    if (!(m.kcal > 0) || m.kcal < full.kcal * .75) return null;   // only small extras may be missing (toppings, a vegetable), never the main thing
+    let sv = clampServ(kT / m.kcal), mx = 9;
+    for (const x of items) { if (COMBO_STAPLES.has(x.ing)) continue; mx = Math.min(mx, (left[x.ing] || 0) / x.amt - extra); }
+    const use = Math.min(sv, q4(mx)); if (use < .5 || use < sv * .5) return null;
+    return { r, sv: use, m, skip };
+  };
+  const uc = {}, ucost = id => (id in uc ? uc[id] : (uc[id] = ing(id) ? unitCost(ing(id)) : 0));
+  const soon = id => { const i = ing(id); return i && i.pantryExp && i.pantryExp <= addDays(t, 3) ? 1 : lifeOf(i || {}) < 10 ? .5 : .15; };
+  const scoreOf = (o, kT, pT, used) => {
+    let sc = Math.abs(o.m.kcal * o.sv - kT) / Math.max(kT, 1) * 2 + Math.max(0, pT - o.m.p * o.sv) / Math.max(pT, 1) - TASTE_W * satPref(prefScore(o.r)) + (used[o.r.id] || 0) * .4 + o.skip.length * .35;
+    for (const x of o.r.items) if (left[x.ing]) sc -= Math.min(left[x.ing], x.amt * o.sv) * ucost(x.ing) * soon(x.ing) * .25;   // eat what goes off first
+    return sc + Math.random() * .15;
+  };
+  const take = (r, sv, skip = []) => { for (const x of r.items) if (left[x.ing] != null && !skip.includes(x.ing)) left[x.ing] = Math.max(0, left[x.ing] - x.amt * sv); };
+  let why = null, homeDays = 0, shopDay = null, din = null, dinDays = 0, box = null; const used = {}, written = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) {
+    const dp = S.plan[d] || (S.plan[d] = {}), tg = targets(d), have = ZERO();
+    for (const e of S.log[d] || []) addM(have, e);
+    for (const s of slots) if (live(dp[s]) && !dp[s].skipped) addM(have, itemMacros(dp[s]));
+    const free = slots.filter(s => !dp[s]); const kLeft = Math.max(0, tg.kcal - have.kcal), pLeft = Math.max(0, tg.p - have.p);
+    const shareSum = free.reduce((a, s) => a + shareOf(s), 0) || 1, picks = {}, snap = Object.assign({}, left);
+    let got = have.kcal;
+    const order = ['dinner', 'breakfast', 'lunch', 'snack'].filter(s => free.includes(s));
+    const tomorrowBox = LFD && addDays(d, 1) <= end && !(S.plan[addDays(d, 1)] || {}).lunch;
+    for (const s of order) {
+      const kT = kLeft * shareOf(s) / shareSum, pT = pLeft * shareOf(s) / shareSum;
+      if (s === 'lunch' && box) { picks.lunch = { r: box.r, sv: box.sv, packed: true, skip: box.skip }; got += recipeMacros({ items: box.r.items.filter(x => !box.skip.includes(x.ing)) }).kcal * box.sv; continue; }   // already reserved yesterday
+      let o = null;
+      if (s === 'dinner' && din && dinDays < N) o = fit(din, kT, tomorrowBox ? (shareOf('lunch') / shareOf('dinner')) : 0);   // keep eating the same pot
+      const best = ex => { const opts = pools[s].map(r => fit(r, kT, ex)).filter(Boolean); return opts.length ? opts.map(x => ({ x, sc: scoreOf(x, kT, pT, used) + (s === 'lunch' && LFD && !noCook(x.r) ? .6 : 0) })).sort((a, b) => a.sc - b.sc)[0].x : null; };
+      if (!o) o = best(s === 'dinner' && tomorrowBox ? (shareOf('lunch') / shareOf('dinner')) : 0);
+      if (!o && s === 'dinner' && tomorrowBox) o = best(0);   // not enough for a lunch box too: tonight's dinner first
+      if (!o) continue;
+      picks[s] = { r: o.r, sv: o.sv, skip: o.skip }; take(o.r, o.sv, o.skip); got += o.m.kcal * o.sv;
+    }
+    // top up: bigger portions from what is still at home before giving up on the day
+    for (let pass = 0; pass < 8 && got < tg.kcal * .95; pass++) {
+      let grew = false;
+      for (const s of ['dinner', 'breakfast', 'lunch', 'snack']) { const p = picks[s]; if (!p || p.packed || p.sv >= 3) continue;
+        const its = p.r.items.filter(x => !(p.skip || []).includes(x.ing) && !COMBO_STAPLES.has(x.ing));
+        if (its.some(x => (left[x.ing] || 0) < x.amt * .25 - 1e-9)) continue;
+        take(p.r, .25, p.skip || []); p.sv += .25; got += recipeMacros({ items: p.r.items.filter(x => !(p.skip || []).includes(x.ing)) }).kcal * .25; grew = true; if (got >= tg.kcal * .95) break; }
+      if (!grew) break;
+    }
+    if (got < tg.kcal * .75 || free.some(s => s !== 'snack' && !picks[s])) {
+      why = { d, got: Math.round(got), need: Math.round(tg.kcal), picks: Object.fromEntries(Object.entries(picks).map(([s, p]) => [s, p.r.name + ' x' + p.sv])), free }; Object.assign(left, snap); for (const k of Object.keys(left)) if (!(k in snap)) delete left[k]; shopDay = d; break; }
+    // reserve tomorrow's lunch box from tonight's dinner
+    box = null;
+    if (tomorrowBox && picks.dinner) { const r = picks.dinner.r, skip = picks.dinner.skip || [], its = r.items.filter(x => !skip.includes(x.ing)), kL = targets(addDays(d, 1)).kcal * shareOf('lunch'), sv = Math.min(clampServ(kL / recipeMacros({ items: its }).kcal), q4(Math.min(...its.filter(x => !COMBO_STAPLES.has(x.ing)).map(x => (left[x.ing] || 0) / x.amt)))); if (sv >= .5) { box = { r, sv, skip }; take(r, sv, skip); } }
+    if (picks.dinner) { if (din && picks.dinner.r.id === din.id && dinDays < N) dinDays++; else { din = picks.dinner.r; dinDays = 1; } } else { din = null; dinDays = 0; }
+    for (const [s, p] of Object.entries(picks)) { dp[s] = Object.assign({ rid: p.r.id, serv: p.sv, home: true }, p.packed ? { packed: true } : {}, p.skip && p.skip.length ? { skip: p.skip } : {}); used[p.r.id] = (used[p.r.id] || 0) + (s === 'dinner' ? 0 : 1); }
+    written.push(d); homeDays++;
+  }
+  STOCK_AT = prevOvr;
+  S.shopDay = S.shopDay || {};
+  if (shopDay) { S.shopDay[week] = shopDay; generate(week, { keep: true, from: shopDay }); }
+  else delete S.shopDay[week];
+  const fmt = d => DAYN[wdIdx(d)];
+  const msg = !homeDays ? 'Z tego, co masz w domu, nie da się ułożyć nawet jednego dnia – plan normalny z zakupami'
+    : shopDay ? `Z tego, co masz: ${homeDays} ${homeDays === 1 ? 'dzień' : 'dni'} (${fmt(written[0])}–${fmt(written[written.length - 1])}). Zakupy: ${DAYFULL[wdIdx(shopDay)].toLowerCase()} – lista ma tylko to, czego brakuje na dalsze dni`
+    : `Cały tydzień ułożony z tego, co masz w domu – nic nie musisz kupować`;
+  return { days: homeDays, shopDay, msg, why };
+}
+/* the main "plan the week" button: home first (when there is something at home), otherwise the normal planner */
+function genSmart(week) {
+  if (S.profile.homeFirst !== false && pantryItems().length >= 3) { const h = planFromHome(week); if (h.days > 0) return h.msg; }
+  if (S.shopDay) delete S.shopDay[week];
+  const w = generate(week); return w.length ? w[0] : null;
 }
 function refitDay(d) {
   const dp = S.plan[d]; if (!dp) return;
@@ -552,7 +663,7 @@ function cookSessions(week) {
   }
   for (const x of out) {
     x.portions = x.days.length + (x.packed || 0); const r = rec(x.rid), tot = {};
-    for (const it of x.items) for (const y of r.items) tot[y.ing] = (tot[y.ing] || 0) + y.amt * it.serv;
+    for (const it of x.items) for (const y of itItems(it)) tot[y.ing] = (tot[y.ing] || 0) + y.amt * it.serv;
     x.totals = Object.entries(tot).map(([id, a]) => ({ i: ing(id), a })).filter(t => t.i);
   }
   return out.sort((a, b) => a.days[0].localeCompare(b.days[0]));
@@ -608,7 +719,7 @@ function shopListRaw(week, trip = null) {
     const tr = nT === 2 ? tripOf(i) : 0, dp = S.plan[d] || {};
     for (const s of SL()) {
       const it = dp[s]; if (!it || it.eaten || it.auto || it.skipped) continue; const r = rec(it.rid); if (!r) continue;
-      for (const x of r.items) { need[tr][x.ing] = (need[tr][x.ing] || 0) + x.amt * it.serv; (uses[x.ing + '|' + tr] = uses[x.ing + '|' + tr] || []).push(i); }
+      for (const x of itItems(it)) { need[tr][x.ing] = (need[tr][x.ing] || 0) + x.amt * it.serv; (uses[x.ing + '|' + tr] = uses[x.ing + '|' + tr] || []).push(i); }
     }
   }
   const left = {}; S.ingredients.forEach(i => left[i.id] = stockQ(i));
@@ -1008,7 +1119,7 @@ function weekReview(week) {
   const end = addDays(week, 6), rs = (S.ratings || []).filter(x => x.d >= week && x.d <= end && rec(x.rid));
   const byR = {}; rs.forEach(x => { (byR[x.rid] = byR[x.rid] || []).push(x.r); });
   const rated = Object.entries(byR).map(([rid, a]) => ({ name: rec(rid).name, avg: a.reduce((p, q) => p + q, 0) / a.length })).sort((a, b) => b.avg - a.avg);
-  const wasted = (S.stockLog || []).filter(e => e.why === 'przeterminowane' && new Date(e.t) >= parseD(week) && new Date(e.t) <= parseD(addDays(end, 1))).reduce((a, e) => { const i = ing(e.id); return a + (i ? -e.q * unitCost(i) : 0); }, 0);
+  const wasted = (S.stockLog || []).filter(e => (e.why === 'przeterminowane' || e.why === 'wyrzucone') && new Date(e.t) >= parseD(week) && new Date(e.t) <= parseD(addDays(end, 1))).reduce((a, e) => { const i = ing(e.id); return a + (i ? -e.q * unitCost(i) : 0); }, 0);
   const R = { days: n, kcal: kc / n, kcalT: tk / n, p: pr / n, pT: tp / n, cost, meat, din, train, rated, wasted, tips: [] };
   const dk = R.kcal / R.kcalT;
   if (dk < .92) R.tips.push(`Jadłeś średnio ${r0(R.kcalT - R.kcal)} kcal poniżej celu – przy masie dodaj porcję albo shake.`);
@@ -1028,6 +1139,6 @@ const stockCheckItems = () => pantryItems().map(i => ({ i, v: (i.pantry || 0) * 
 /* frozen meat or fish that tomorrow needs: take it out the evening before */
 function thawList(d) {
   const out = new Set(), dd = addDays(d, 1), dp = S.plan[dd] || {};
-  for (const s of SL()) { const it = dp[s], r = live(it); if (!r || it.eaten) continue; for (const x of rec(it.rid).items) { const i = ing(x.ing); if (i && i.aisle === 'Mrożonki' && isMeatIng(i) && !/gotow|panier|paluszk/i.test(i.name)) out.add(i.name.replace(/ \(.*\)/, '').toLowerCase()); } }
+  for (const s of SL()) { const it = dp[s], r = live(it); if (!r || it.eaten) continue; for (const x of itItems(it)) { const i = ing(x.ing); if (i && i.aisle === 'Mrożonki' && isMeatIng(i) && !/gotow|panier|paluszk/i.test(i.name)) out.add(i.name.replace(/ \(.*\)/, '').toLowerCase()); } }
   return [...out];
 }
