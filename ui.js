@@ -709,8 +709,8 @@ function addFood() {
     <div id="af_body"></div><label>Posiłek</label><select id="af_slot">${SLOTS_ALL.map(s => `<option value="${s}">${SLOT_PL[s]}</option>`).join('')}</select>`,
     [{ label: 'Dodaj', cls: 'pri', fn: () => {
       const slot = val('af_slot'), mode = addFood.mode || 'ing'; let e;
-      if (mode === 'ing') { const i = ing(pickId('af_i')), a = num(val('af_a')); if (!i || !a) return toast('Wybierz składnik i ilość'); e = { name: `${i.name} ${fmtAmt(a, i.unit)}`, ...ingMacros(i, a) }; }
-      else if (mode === 'rec') { const r = rec(val('af_r')), sv = num(val('af_a')) || 1; if (!r) return toast('Wybierz przepis'); e = { name: `${r.name} ×${sv}`, ...addM(ZERO(), recipeMacros(r), sv) }; }
+      if (mode === 'ing') { const i = ing(pickId('af_i')), a = num(val('af_a')); if (!i || !a) return toast('Wybierz składnik i ilość'); e = { name: `${i.name} ${fmtAmt(a, i.unit)}`, ...ingMacros(i, a), used: takeStock([{ ing: i.id, amt: a }], 'dziennik') }; }
+      else if (mode === 'rec') { const r = rec(val('af_r')), sv = num(val('af_a')) || 1; if (!r) return toast('Wybierz przepis'); e = { name: `${r.name} ×${sv}`, ...addM(ZERO(), recipeMacros(r), sv), used: takeStock(r.items.map(x => ({ ing: x.ing, amt: x.amt * sv })), r.name) }; }
       else { if (!num(val('af_k'))) return toast('Podaj kalorie'); e = { name: val('af_n') || 'Jedzenie', kcal: num(val('af_k')), p: num(val('af_p')), c: num(val('af_c')), f: num(val('af_f')) }; }
       e.id = uid(); e.slot = slot; (S.log[d] = S.log[d] || []).push(e); save(); closeModal(); render();
     } }]);

@@ -175,7 +175,7 @@ function setEaten(d, slot, val) {
   const it = S.plan[d][slot]; if (!!it.eaten === val) return;
   it.eaten = val; const r = rec(it.rid);
   if (val && it.auto) it.auto = false;   // stock for this meal was already taken automatically
-  else if (val) { it.used = {}; if (r) for (const x of r.items) { const i = ing(x.ing); if (!i) continue; const dec = Math.min(i.pantry || 0, x.amt * it.serv); i.pantry = (i.pantry || 0) - dec; it.used[i.id] = (it.used[i.id] || 0) + dec; } }
+  else if (val) { it.used = r ? takeStock(r.items.map(x => ({ ing: x.ing, amt: x.amt * it.serv })), r.name) : {}; }
   else { for (const [id, q] of Object.entries(it.used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } it.used = {}; it.noAuto = true; }
 }
 
@@ -200,6 +200,17 @@ function rollBatch(i) {
   if (!((i.pantry || 0) > .01)) { delete i.pantryNext; return; }
   if (i.pantry <= i.pantryNext.q + .01) { i.pantryExp = i.pantryNext.exp; delete i.pantryNext; }
 }
+/* take food out of the stock (oldest batch first) – also for things logged by hand; returns what was taken so it can be given back */
+function takeStock(items, why) {
+  const used = {};
+  for (const x of items) {
+    const i = ing(x.ing); if (!i || !(i.pantry > 0)) continue;
+    const dec = Math.min(i.pantry, x.amt); i.pantry -= dec; rollBatch(i); used[i.id] = (used[i.id] || 0) + dec;
+    if (dec > .01) stockLogAdd({ id: i.id, q: -dec, why: 'zużyte', meal: why });
+  }
+  return used;
+}
+function giveStock(used) { for (const [id, q] of Object.entries(used || {})) { const i = ing(id); if (i) i.pantry = (i.pantry || 0) + q; } }
 function mealDue(d, s) { const t = today(); return d < t || (d === t && new Date().getHours() >= SLOT_DONE_H[s]); }
 function tickStock() {
   if (!S || !S.plan) return false;
@@ -576,6 +587,7 @@ function applyCheat(d, c) {
 function removeLog(d, id) {
   const arr = S.log[d] || [], e = arr.find(x => x.id === id); if (!e) return;
   S.log[d] = arr.filter(x => x.id !== id);
+  giveStock(e.used);   // food logged by hand goes back home when the entry is deleted
   if (e.cheat) {
     for (const [x, v] of Object.entries(e.spread || {})) S.adjust[x] = (S.adjust[x] || 0) + v;
     if (e.replaces && S.plan[d] && S.plan[d][e.replaces]) S.plan[d][e.replaces].skipped = false;
